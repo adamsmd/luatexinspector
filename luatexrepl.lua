@@ -53,6 +53,11 @@ print('Searchers after:', #package.searchers)
 print('-------- LuaTeXRepl Searchers --------')
 
 print('++++++++ LuaTeXRepl Functions ++++++++')
+local luatex_version = status.list().luatex_version
+
+--------------------------------
+-- Tokens
+--------------------------------
 function peek_next(count)
   if count == nil then
     return peek_next(1)[1]
@@ -71,7 +76,30 @@ function peek_next(count)
   return toks
 end
 
-local luatex_version = status.list().luatex_version
+function token_tostring(tok)
+  if tok.command == 11 then
+    -- Letter
+    return string.format(
+      '<token %x: %s (%d) %s (%d)>',
+      tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
+  else
+    -- Non-letter
+    return string.format(
+      '<token %x: %s (%d) %s [%d] %s%s%s>',
+      tok.tok, tok.cmdname, tok.command, tok.csname, tok.mode,
+      tok.active     and 'A' or '-',
+      tok.expandable and 'E' or '-',
+      tok.protected  and 'P' or '-')
+  end
+  --tok(hex): EPA m
+end
+local token_metatable = getmetatable(token.create("relax"))
+token_metatable.__tostring = token_tostring
+-- tok: void make_token_table(lua_State * L, int cmd, int chr, int cs)
+--cmd -> command (cmdname)
+--cs -> csname
+--command = 11 -> letter (use mode)
+--mode
 function token_table(tok) -- TODO: support ...
   return {
     command = tok.command,
@@ -88,15 +116,104 @@ function token_table(tok) -- TODO: support ...
   }
 end
 
---[[Since we can't figure out how to user token.expand. The following uses
-'\expandafter\relax' to accomplish the same]]
+--------------------------------
+-- Modes
+--------------------------------
+modenames = {}
+modenums = {}
+for k,v in pairs(tex.getmodevalues()) do
+  modenames[k] = v
+  modenums[v] = k
+end
+
+-- See the top of source/texk/web2c/luatexdir/tex/nesting.c for these explanations
+-- 'unset': processing \write texts in the ship_out() routine
+-- 'vertical': the page builder
+-- 'horizontal': the paragraph builder
+-- 'math': display math
+modenames[-modenums['vertical']] = 'internal vertical' -- e.g., in a \vbox
+modenames[-modenums['horizontal']] = 'restricted horizontal' -- e.g., in an \hbox
+modenames[-modenums['math']] = 'non-display math' -- non-display math
+
+--------------------------------
+-- Nests
+--------------------------------
+function nest_table(nest)
+  local table = {
+    mode = nest.mode, -- negative indicate inner and inline variants
+    modeline = nest.modeline, -- source input line where this mode was entered in, negative inside the output routine
+    head = nest.head,
+    tail = nest.tail,
+  }
+
+  local modename = modenames[math.abs(table.mode)]
+  if modename == "vertical" then
+    table.prevgraf = nest.preav --  number of lines in the previous paragraph
+    table.prevdepth = nest.prevdepth -- depth of the previous paragraph
+  elseif modename == "horizontal" then
+    table.spacefactor = nest.spacefactor -- (num)
+    table.dirs = nest.dirs -- (node) temp storage by line break algorithm
+  elseif modename == "math" then
+    table.noad = nest.noad -- used for temporary storage of a pending fraction numerator, for \over etc
+    table.delimptr = nest.delimptr -- used for temporary storage of the previous math delimiter, for \middle
+    table.mathdir = nest.mathdir -- true when during math processing the \mathdir is not the same as the surrounding \textdir
+    table.mathstyle = nest.mathstyle -- num
+  else
+    error() -- TODO: raise error
+  end
+  return table
+end
+function nest_tostring(nest)
+  local prefix = string.format('<%s (%d) L%d', modenames[nest.mode], nest.mode, nest.modeline)
+  local suffix = string.format('tail: %s head: %s>', nest.tail, nest.head)
+  local modename = tex.getmodevalues()[math.abs(nest.mode)]
+  if modename == "vertical" then
+    return string.format(
+      "%s prevgraf: %d prevdepth: %d %s",
+      prefix, nest.prevgraf, nest.prevdepth, suffix)
+  elseif modename == 'horizontal' then
+    return string.format(
+      "%s spacefactor: %d dirs: %s %s",
+      prefix, nest.spacefactor, nest.dirs, suffix)
+  elseif modename == 'math' then
+    return string.format(
+      "%s noad: %s delimptr: %s mathdir: %s mathstyle: %d %s",
+      prefix, nest.noad, nest.delimptr, nest.mathdir, nest.mathstyle, suffix)
+  else
+    error() -- TODO: raise error
+  end
+end
+local nest_metatable = getmetatable(tex.nest[1])
+nest_metatable.__tostring = nest_tostring
+
+--------------------------------
+-- 
+--------------------------------
+function node_table(node) -- TODO: support ...
+end
+
+-- page_ins_head -- circular list of pending insertions
+-- contrib_head -- the recent contributions
+-- page_head -- the current page content
+-- hold_head -- used for held-over items for next page
+-- adjust_head -- head of the current \vadjust list
+-- pre_adjust_head -- head of the current \vadjust pre list
+-- page_discards_head -- head of the discarded items of a page break
+-- split_discards_head -- head of the discarded items in a vsplit
+
+-- temp_head
+-- best_page_break
+-- least_page_cost
+-- best_size
+-- align_head
+
+--[[Since we can't figure out how to use token.expand().  The following uses
+'\expandafter\relax' to accomplish the same.]]
 local expandafter_token = token.create("expandafter")
 local relax_token = token.create("relax")
 function expand()
-  local next = peek_next()
   token.put_next(expandafter_token, relax_token)
   token.scan_token() -- Triggers the expansion and reads back the \relax token
-  return next, peek_next()
   -- TODO: fix undefined_cs?
 end
 print('-------- LuaTeXRepl Functions --------')
@@ -123,6 +240,7 @@ print('-------- LuaTeXRepl --------')
 -- need to set stdin mode?
 -- need to set stdout and stderr flush mode?
 
+-- require 'vinspect' (tex)
 -- tex.nest[tex.nest.ptr].mode
 -- token.commands
 -- tex.primitives
@@ -148,3 +266,7 @@ print('-------- LuaTeXRepl --------')
 -- svn update --set-depth=infinity ...
 -- svn update --set-depth=empty ...
 -- svn update --set-depth=exclude ...
+
+-- dot -Txlib (automatically updates when the file is updated)
+
+-- userdata: nest, node
