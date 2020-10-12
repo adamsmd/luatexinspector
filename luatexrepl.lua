@@ -1,10 +1,17 @@
 -- luarocks install luaprompt
--- luatex --shell-escape --lua=luarepl-startup.lua lualatexrepl.tex
--- luatex --shell-escape luatexrepl.tex
--- lualatex --shell-escape luatexrepl.tex
-
+--
+-- sudo apt install libgirepository1.0-dev
+-- luarocks install lgi
+--
+-- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape --lua=luatexrepl-startup.lua luatexrepl.tex
+-- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape luatexrepl.tex
+-- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" lualatex --shell-escape luatexrepl.tex
+--
+-- make && yes | cp luatex luahbtex ../../../../../Master/bin/x86_64-linux/
+--
 -- LuaTeX 1.10.0 == Lua 5.3
 -- LuaTeX 1.12.0 == Lua 5.3
+
 print('\n++++++++ LuaTeXRepl ++++++++')
 
 print('++++++++ LuaTeXRepl Searchers ++++++++')
@@ -76,30 +83,6 @@ function peek_next(count)
   return toks
 end
 
-function token_tostring(tok)
-  if tok.command == 11 then
-    -- Letter
-    return string.format(
-      '<token %x: %s (%d) %s (%d)>',
-      tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
-  else
-    -- Non-letter
-    return string.format(
-      '<token %x: %s (%d) %s [%d] %s%s%s>',
-      tok.tok, tok.cmdname, tok.command, tok.csname, tok.mode,
-      tok.active     and 'A' or '-',
-      tok.expandable and 'E' or '-',
-      tok.protected  and 'P' or '-')
-  end
-  --tok(hex): EPA m
-end
-local token_metatable = getmetatable(token.create("relax"))
-token_metatable.__tostring = token_tostring
--- tok: void make_token_table(lua_State * L, int cmd, int chr, int cs)
---cmd -> command (cmdname)
---cs -> csname
---command = 11 -> letter (use mode)
---mode
 function token_table(tok) -- TODO: support ...
   return {
     command = tok.command,
@@ -115,6 +98,24 @@ function token_table(tok) -- TODO: support ...
     index = luatex_version >= 112 and tok.index or nil,
   }
 end
+function token_tostring(tok)
+  if tok.command == 11 then
+    -- Letter
+    return string.format(
+      '<token %x: %s (%d) %s (%d)>',
+      tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
+  else
+    -- Non-letter
+    return string.format(
+      '<token %x: %s (%d) %s [%d] %s%s%s>',
+      tok.tok, tok.cmdname, tok.command, tok.csname, tok.mode,
+      tok.active     and 'A' or '-',
+      tok.expandable and 'E' or '-',
+      tok.protected  and 'P' or '-')
+  end
+end
+local token_metatable = getmetatable(token.create("relax"))
+token_metatable.__tostring = token_tostring
 
 --------------------------------
 -- Modes
@@ -184,10 +185,10 @@ function nest_tostring(nest)
   end
 end
 local nest_metatable = getmetatable(tex.nest[1])
-nest_metatable.__tostring = nest_tostring
+--TODO: nest_metatable.__tostring = nest_tostring
 
 --------------------------------
--- 
+-- Nodes
 --------------------------------
 function node_table(node) -- TODO: support ...
 end
@@ -217,6 +218,13 @@ function expand()
   -- TODO: fix undefined_cs?
 end
 print('-------- LuaTeXRepl Functions --------')
+
+-- https://github.com/Josef-Friedrich/nodetree/blob/master/nodetree.lua
+nodetree = require 'nodetree'
+-- nodetree.analyze(list)
+-- https://gist.github.com/pgundlach/556247
+viznodelist = require 'viznodelist'
+-- viznodelist.nodelist_visualize(box, filename, { showdisc = true })
 
 print('++++++++ LuaTeXRepl luaprompt ++++++++')
 prompt = require 'prompt'
@@ -269,4 +277,8 @@ print('-------- LuaTeXRepl --------')
 
 -- dot -Txlib (automatically updates when the file is updated)
 
--- userdata: nest, node
+-- insert_vj_template
+-- u_j template
+-- inputstack.c
+--    show_context()
+--    input_stack

@@ -7,12 +7,19 @@
 %%%%%%%%
 %abc\end
 %%%%%%%%
-\def\x{Z}
-%\x
 %%%%%%%%
 \documentclass{article}
 
 \begin{document}
+\def\aaa{}
+\def\yyy{Y}
+\def\zzz{Z}
+\def\www{W}
+\def\xxx#1#2#3{ #1 #2 #3}
+\directlua{require 'luatexrepl.lua'}\xxx\yyy\zzz\www
+
+%\directlua{require 'luatexrepl.lua'}
+%\xxx{A}{B}
 foo bar baz
 
 asdfl asdfl asdf asdf asdf asdf asdf
@@ -29,13 +36,13 @@ asdfl asdfl asdf asdf asdf asdf asdf
 asdfl asdfl asdf asdf asdf asdf asdf
 asdfl asdfl asdf asdf asdf asdf asdf
 asdfl asdfl asdf asdf asdf asdf asdf%
-\directlua{require 'luatexrepl.lua'}%
-$xyz$a\vspace{1em}
+%\directlua{require 'luatexrepl.lua'}%
+%\x
 
 a
 
 a
 
-\x ab\def
+%\x ab\def
 
 \end{document}
