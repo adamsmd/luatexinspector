@@ -226,6 +226,250 @@ nodetree = require 'nodetree'
 viznodelist = require 'viznodelist'
 -- viznodelist.nodelist_visualize(box, filename, { showdisc = true })
 
+print('++++++++ LuaTeXRepl GUI ++++++++')
+
+-- https://github.com/nymphium/lua-graphviz
+-- https://github.com/hleuwer/luagraph
+-- http://siffiejoe.github.io/lua-microscope/
+
+-- https://github.com/hishamhm/tabular
+-- https://github.com/kikito/inspect.lua
+
+-- https://github.com/pavouk/lgi/blob/master/samples/gtk-demo/demo-treeview-editable.lua
+
+lgi = require 'lgi'
+Gtk = lgi.require 'Gtk'
+GLib = lgi.require 'GLib'
+--assert = lgi.assert
+
+builder = Gtk.Builder()
+-- TODO: error checking
+print(builder:add_from_file('luatexrepl.glade'))
+-- TODO: assert
+print('++++++++ LuaTeXRepl GUI2 ++++++++')
+
+ui = builder.objects
+
+
+LuaTeXRepl = lgi.package('LuaTeXRepl')
+
+--input_row_builder = Gtk.Builder()
+--print(builder:add_from_file('luatexrepl-input_row.glade'))
+file = io.open('luatexrepl-input_row.glade', "rb") -- r read mode and b binary mode
+assert(file)
+content = file:read "*all" -- *a or *all reads the whole file
+file:close()
+print(content)
+
+-- Create top level window with some properties and connect its 'destroy'
+-- signal to the event loop termination.
+window = ui.window
+
+-- local step_button = ui.step_button
+-- function step_button:on_clicked()
+--   -- TODO
+-- end
+
+-- local expand_button = ui.expand_button
+-- function expand_button:on_clicked()
+--   -- TODO
+-- end
+
+-- Icons:
+--   document-page-setup
+--   text-x-generic-templpate
+--   text-x-script
+
+-- Create some more widgets for the window.
+statusbar = ui.statusbar
+statusbar_ctx = statusbar:get_context_id('default')
+statusbar:push(statusbar_ctx, 'This is statusbar message.')
+
+-- on_clicked = function() window:destroy() end
+
+function window:on_destroy()
+  Gtk.main_quit()
+end
+
+function ui.file_quit_menu_item:on_activate()
+  window:destroy()
+end
+
+function ui.step_button:on_clicked()
+  print("EXECUTE")
+  tex.execute()
+  refresh()
+end
+
+function ui.expand_button:on_clicked()
+  print("EXPAND")
+  tex.expand()
+  refresh()
+end
+
+function ui.refresh_button:on_clicked()
+  print("REFRESH")
+  refresh()
+end
+
+-- function about_button:on_clicked()
+--   dlg:run()
+--   dlg:hide()
+-- end
+
+-- Connect 'Quit' actions.
+--function ui.Quit:on_activate()
+--  window:destroy()
+--end
+
+-- function ui.About:on_activate()
+--   ui.about_dialog:run()
+--   ui.about_dialog:hide()
+-- end
+
+-- Show window and start the loop.
+window:show_all()
+
+-- Ctrl-C = Gtk.main_quit()
+
+InputRowWidget = LuaTeXRepl:class('InputRow', Gtk.ListBoxRow)
+do
+  local IR = InputRowWidget()
+  InputRowClass = IR._class
+  --InputRowClass = InputRow._class()
+  InputRowClass:set_template(GLib.Bytes(content))
+  InputRowClass:bind_template_child_full('expander', false, 0)
+  InputRowClass:bind_template_child_full('short_label', false, 0)
+  InputRowClass:bind_template_child_full('long_label', false, 0)
+  IR = nil
+end
+--InputRow:set_template(GLib.Bytes(content))
+
+InputRow = {}
+function InputRow:new(index)
+  local widget = InputRowWidget()
+  widget:init_template()
+  local object = {
+    index = index,
+    widget = widget,
+    expander = widget:get_template_child(InputRowWidget, 'expander'),
+    short_label = widget:get_template_child(InputRowWidget, 'short_label'),
+    long_label = widget:get_template_child(InputRowWidget, 'long_label')
+  }
+  setmetatable(object, self)
+  self.__index = self
+  object:refresh()
+  return object
+end
+function InputRow:refresh()
+  print("\n\n")
+  local size = token.inputstacksize()
+  if self.index > size then
+    self.short_label:set_text("<out-of-scope>")
+  else
+    local input_state = token.getinputstack(self.index)
+    print("INDEX:", self.index, "TOKENS:", input_state.tokens)
+    if input_state.tokens ~= nil then
+      local short_string = string.format("Y %d: ", self.index)
+      print("SIZE:", #input_state.tokens)
+      print("LOC:", input_state.tokens.loc)
+      for i=input_state.tokens.loc,#input_state.tokens do
+        tok = input_state.tokens[i]
+        print("I:", i, "TOK:", tok)
+        if tok.command == 11 then
+          short_string = short_string .. string.char(tok.mode)
+          -- Letter
+          -- return string.format(
+          --   '<token %x: %s (%d) %s (%d)>',
+          --   tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
+        elseif tok.command == 5 then -- `car_ret`, which seems to be used for arguments
+          short_string = short_string .. '#' .. tok.mode
+        else
+          short_string = short_string .. '\\' .. tok.cmdname .. ' '
+          -- -- Non-letter
+          -- return string.format(
+          --   '<token %x: %s (%d) %s [%d] %s%s%s>',
+          --   tok.tok, tok.cmdname, tok.command, tok.csname, tok.mode,
+          --   tok.active     and 'A' or '-',
+          --   tok.expandable and 'E' or '-',
+          --   tok.protected  and 'P' or '-')
+        --end
+        end
+      end
+      print("INPUT:", self.index)
+      print("SHORT:", short_string)
+      self.short_label:set_text(short_string)
+    else
+      print("INPUT:", self.index)
+      print("SHORT:", input_state.line)
+      self.short_label:set_text(string.format("X %d: %s", self.index, input_state.line))
+    end
+  end
+  --self.short_label
+  --token.inputstacksize
+  --token.getinputstack
+end
+
+-- TODO: "step +10" button
+-- TODO: "step until next expand" button
+-- TODO: "step until smaller stack" button
+
+input_rows = {}
+
+do
+  local y = InputRow:new(0)
+  input_rows[0] = y
+  print(i)
+  print(y)
+  print(y.widget)
+  ui.input_list_box:insert(y.widget, -1)
+end
+
+-- >  t = nodetree.analyze(tex.nest[1].head, {channel = 'str'})
+
+function refresh()
+  local stack_size = token.inputstacksize()
+  print("STACK SIZE:", stack_size)
+  print("INPUT_ROWS:", #input_rows)
+  for i=stack_size+1,#input_rows do
+    print("DELETE:", i)
+    local y = input_rows[i]
+    print("Y:", y)
+    print("Y:", y.widget)
+    ui.input_list_box:remove(y.widget)
+    input_rows[i] = nil
+  end
+  for i=#input_rows+1,stack_size do
+    print("ADD:", i)
+    local y = InputRow:new(i)
+    input_rows[i] = y
+    print(i)
+    print(y)
+    print(y.widget)
+    ui.input_list_box:insert(y.widget, -1)
+  end
+  print("OK:", #input_rows == stack_size)
+  for i=0,stack_size do
+    input_rows[i]:refresh()
+  end
+end
+refresh()
+
+-- TODO: attach InputRow to InputRowWidget as userdata?
+
+  --local x = InputRow:new(0)
+  --ui.input_list_box:insert(x.widget, -1)
+
+--y = InputRow:new(2)
+--ui.input_list_box:insert(y.widget, -1)
+
+--Gtk.main()
+
+--\\directlua{require 'luatexrepl.lua'}\\xxx\\yyy a\\zzz b\\www c
+
+print('-------- LuaTeXRepl GUI --------')
+
+
 print('++++++++ LuaTeXRepl luaprompt ++++++++')
 prompt = require 'prompt'
 

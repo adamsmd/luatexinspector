@@ -15,8 +15,9 @@
 \def\yyy{Y}
 \def\zzz{Z}
 \def\www{W}
-\def\xxx#1#2#3{ #1 #2 #3}
-\directlua{require 'luatexrepl.lua'}\xxx\yyy\zzz\www
+\def\xxx#1a#2b#3c{#1 #2 #3}
+ABCD
+\directlua{require 'luatexrepl.lua'}\xxx XYZa\zzz b\www cqwerty
 
 %\directlua{require 'luatexrepl.lua'}
 %\xxx{A}{B}

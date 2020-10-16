@@ -180,13 +180,16 @@ local format = {
   end
 }
 
+local output = nil
 --- Print the output to stdout or write it into a file (`output_file`).
 -- New text is appended.
 --
 -- @tparam string text A text string.
 --
 local function nodetree_print(text)
-  if options.channel == 'log' or options.channel == 'tex' then
+  if options.channel == 'str' then
+    output = output .. text
+  elseif options.channel == 'log' or options.channel == 'tex' then
     output_file:write(text)
   else
     io.write(text)
@@ -1605,11 +1608,17 @@ local export = {
   -- @tparam node head The head node of a node list.
   -- @tparam table opts Options as a table.
   print = function(head, opts)
+    output = ''
     if opts and type(opts) == 'table' then
       set_options(opts)
     end
     nodetree_print(format.new_line())
     tree.analyze_list(head, 1)
+    if options.channel == 'str' then
+      local o = output
+      output = nil
+      return o
+    end
   end,
 
   --- Format a scaled point value into a formated string.
@@ -1628,6 +1637,8 @@ local export = {
   get_default_option = function(key)
     return default_options[key]
   end
+
+
 }
 
 --- Use export.print
