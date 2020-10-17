@@ -106,6 +106,21 @@ print('Searchers after:', #package.searchers)
 
 print('-------- LuaTeXRepl Searchers --------')
 
+print('++++++++ LuaTeXRepl luaprompt ++++++++')
+prompt = require 'prompt'
+
+prompt.name = 'luatexrepl'
+
+local dirsep = string.match (package.config, "[^\n]+")
+local dirname = os.getenv('HOME') -- TODO: os.env?
+for _k,v in pairs({'local', 'share', 'luatexrepl'}) do
+  dirname = dirname .. dirsep .. v
+  lfs.mkdir(dirname)
+end
+prompt.history = dirname .. '/history'
+
+print('-------- LuaTeXRepl luaprompt --------')
+
 print('++++++++ LuaTeXRepl Functions ++++++++')
 local luatex_version = status.list().luatex_version
 
@@ -408,7 +423,6 @@ function InputRow:new(index)
   }
   setmetatable(object, self)
   self.__index = self
-  object:refresh()
   return object
 end
 function escape_markup(text)
@@ -417,7 +431,7 @@ end
 
 control_escapes = {}
 for i=0x0,0x1F do
-  control_escapes[utf8.char(i)] = utf8.char(0x2400 + i) --'\xE2\x90'..string.char(0x80+id)
+  control_escapes[utf8.char(i)] = utf8.char(0x2400 + i)
 end
 function escape_control(text)
   return text
@@ -425,39 +439,37 @@ function escape_control(text)
     :gsub(' ', '␣')
     :gsub('%c', control_escapes)
     --:gsub('\r', '↵')
-
-  --'\xE2\x90'..string.char(0x80+id)
-  --text:gsub(' ', '␣')
+end
+function escape_all(text)
+  return escape_markup(escape_control(text))
 end
 -- TODO: font size control
 function string_of_tokens(tokens, param_start, params)
+  print("STRING_OF_TOK:", prompt.describe(tokens))
+  if tokens == nil then return "**NIL**" end
   local start = tokens.loc or 1
-  print('tokens', tokens)
-  print("SIZE:", #tokens)
-  print("START:", start)
   local result = ''
   for i=start,#tokens do
     local tok = tokens[i]
-    print("I:", i, "TOK:", tok)
     if tok.cmdname == 'letter' then
-      result = result .. escape_markup(string.char(tok.mode))
+      result = result .. escape_all(string.char(tok.mode))
       -- Letter
       -- return string.format(
       --   '<token %x: %s (%d) %s (%d)>',
       --   tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
     elseif tok.cmdname == 'car_ret' then -- `car_ret`, which seems to be used for arguments
-      print('tok:', tok)
-      print("param:", param_start, 'tok.limit', tok.limit)
-      print('tok.mode 1 ', tok.mode)
-      local param = string_of_tokens(params[param_start + tok.mode])
-      print('tok.mode 2 ', tok.mode)
-      result = result .. '#' .. tok.mode .. '(' .. param .. ')'
+      print("CALL REC", param_start, prompt.describe(tok))
+      print("PARAMS", prompt.describe(params))
+      result = result .. '#' .. tok.mode
+      local param = params[param_start + tok.mode]
+      if param ~= nil then
+        result = result .. '(' .. string_of_tokens(param, nil, nil) .. ')'
+      end
     elseif tok.cmdname == 'call' then
-      result = result .. '\\' .. escape_markup(tok.csname) .. ' '
+      result = result .. '\\' .. escape_all(tok.csname) .. ' '
     else
-      print('tok:', tok)
-      assert(tok.csname == nil)
-      result = result .. '\\' .. escape_markup(tok.cmdname) .. ' '
+      --assert(tok.csname == nil)
+      result = result .. '\\' .. escape_all(tok.cmdname) .. ' '
       -- -- Non-letter
       -- return string.format(
       --   '<token %x: %s (%d) %s [%d] %s%s%s>',
@@ -471,28 +483,32 @@ function string_of_tokens(tokens, param_start, params)
   return '<tt>' .. result .. '</tt>'
 end
 function InputRow:refresh()
-  print("\n\n")
+  print('INPUT REFRESH: ', self.index, self.markup)
   local size = token.inputstacksize()
   if self.index > size then
     self.short_label:set_text("<out-of-scope>")
   else
     local input_state = token.getinputstack(self.index)
-    print("INDEX:", self.index, "TOKENS:", input_state.tokens)
+    self.long_label:set_markup(escape_markup(prompt.describe(input_state)))
+    local markup
     if input_state.tokens ~= nil then
-      local short_string = string.format("Y %d: ", self.index)
-      print("SIZE:", #input_state.tokens)
-      print("LOC:", input_state.tokens.loc)
       local short_string = string_of_tokens(input_state.tokens, input_state.limit, input_state.params)
-      print('markup', short_string)
-      print("INPUT:", self.index)
-      print("SHORT:", short_string)
-      self.short_label:set_markup(string.format('Y %d: %s', self.index, short_string))
+      markup = string.format(
+        '<tt><span fgcolor="#808080">[%d]</span> %s</tt>',
+        self.index, short_string)
     else
-      print("INPUT:", self.index)
-      print("SHORT:", input_state.line)
-      local short_string = '<tt>' .. 'X ' .. self.index .. ': ' .. escape_markup(escape_control(input_state.line)) .. '</tt>'
-      self.short_label:set_markup(short_string)
+      markup = string.format(
+        '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
+        self.index, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
     end
+    if self.markup == nil then
+      self.short_label:set_markup(string.format('<span bgcolor="#FFFFAA">%s</span>', markup))
+    elseif markup ~= self.markup then
+      self.short_label:set_markup(string.format('<span bgcolor="#FFBBBB">%s</span>', markup))
+    else
+      self.short_label:set_markup(markup)
+    end
+    self.markup = markup
   end
   --self.short_label
   --token.inputstacksize
@@ -500,6 +516,8 @@ function InputRow:refresh()
 end
 
 -- TODO: "step +10" button
+-- TODO: "step k" button
+-- TODO: show step counter
 -- TODO: "step until next expand" button
 -- TODO: "step until smaller stack" button
 
@@ -518,26 +536,16 @@ end
 
 function refresh_input()
   local stack_size = token.inputstacksize()
-  print("STACK SIZE:", stack_size)
-  print("INPUT_ROWS:", #input_rows)
   for i=stack_size+1,#input_rows do
-    print("DELETE:", i)
     local y = input_rows[i]
-    print("Y:", y)
-    print("Y:", y.widget)
     ui.input_list_box:remove(y.widget)
     input_rows[i] = nil
   end
   for i=#input_rows+1,stack_size do
-    print("ADD:", i)
     local y = InputRow:new(i)
     input_rows[i] = y
-    print(i)
-    print(y)
-    print(y.widget)
     ui.input_list_box:insert(y.widget, -1)
   end
-  print("OK:", #input_rows == stack_size)
   for i=0,stack_size do
     input_rows[i]:refresh()
   end
@@ -581,7 +589,6 @@ function NestRow:new(index)
   }
   setmetatable(object, self)
   self.__index = self
-  object:refresh()
   return object
 end
 
@@ -589,22 +596,36 @@ function NestRow:refresh()
   local name
   local list
   if type(self.index) == 'string' then
-    name = self.index
+    name = 'nest ' .. self.index
     list = tex.getlist(self.index)
+    -- TODO: are these list nils a bug?
   else
     name = string.format("%d", self.index)
     local size = tex.getnestptr()
     if self.index > size then
       name = name .. ' <out-of-scope>'
-      list = {}
+      list = nil
     else
       list = tex.getnest(self.index).head
     end
   end
-  local text = nodetree.analyze(list, {channel = 'str', color = 'no'})
-  --print("INDEX:", self.index, "TOKENS:", nest_state.tokens)
   self.short_label:set_text(name)
-  self.long_label:set_text(text)
+  local markup
+  if list == nil then
+    markup = '<EMPTY>'
+  else
+    markup = nodetree.analyze(list, {channel = 'str', color = 'no'})
+  end
+  markup = markup:gsub('^\n', ''):gsub('\n$', '')
+  markup = escape_markup(markup)
+  if self.markup == nil then
+    self.long_label:set_markup(string.format('<span bgcolor="#FFFFAA">%s</span>', markup))
+  elseif markup ~= self.markup then
+    self.long_label:set_markup(string.format('<span bgcolor="#FFBBBB">%s</span>', markup))
+  else
+    self.long_label:set_markup(markup)
+  end
+  self.markup = markup
 --self.short_label
   --token.neststacksize
   --token.getneststack
@@ -616,7 +637,20 @@ end
 
 nest_rows = {}
 
-for k,v in pairs({'page_head'}) do
+for k,v in pairs({
+  'page_ins_head',
+  'contrib_head',
+  'page_dis',
+  'split_dis',
+  'page_head',
+  'temp_head',
+  'hold_head',
+  'adjust_head',
+  'best_page_brea',
+  'least_page_cos',
+  'best_siz',
+  'pre_adjust_head',
+  'align_head',}) do
   local row = NestRow:new(v)
   nest_rows[v] = row
   ui.nest_list_box:insert(row.widget, -1)
@@ -626,18 +660,12 @@ end
 
 function refresh_nest()
   local stack_size = tex.getnestptr()
-  print("STACK SIZE:", stack_size)
-  print("NEST_ROWS:", #nest_rows)
   for i=stack_size+1,#nest_rows do
-    print("DELETE:", i)
     local y = nest_rows[i]
-    print("Y:", y)
-    print("Y:", y.widget)
     ui.nest_list_box:remove(y.widget)
     nest_rows[i] = nil
   end
   for i=#nest_rows+1,stack_size do
-    print("ADD:", i)
     local y = NestRow:new(i)
     nest_rows[i] = y
     print(i)
@@ -645,11 +673,8 @@ function refresh_nest()
     print(y.widget)
     ui.nest_list_box:insert(y.widget, -1)
   end
-  print("OK:", #nest_rows == stack_size)
-  print("NEST:", nest_rows)
   --for i=1,stack_size do
   for i,row in pairs(nest_rows) do
-    print("NEST i:", i, " = ", nest_rows[i])
     nest_rows[i]:refresh()
   end
 end
@@ -673,22 +698,7 @@ refresh()
 
 print('-------- LuaTeXRepl GUI --------')
 
-
-print('++++++++ LuaTeXRepl luaprompt ++++++++')
-prompt = require 'prompt'
-
-prompt.name = 'luatexrepl'
-
-local dirsep = string.match (package.config, "[^\n]+")
-local dirname = os.getenv('HOME') -- TODO: os.env?
-for _k,v in pairs({'local', 'share', 'luatexrepl'}) do
-  dirname = dirname .. dirsep .. v
-  lfs.mkdir(dirname)
-end
-prompt.history = dirname .. '/history'
-
 prompt.enter()
-print('-------- LuaTeXRepl luaprompt --------')
 
 print('-------- LuaTeXRepl --------')
 
