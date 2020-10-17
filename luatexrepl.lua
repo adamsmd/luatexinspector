@@ -11,6 +11,53 @@
 --
 -- LuaTeX 1.10.0 == Lua 5.3
 -- LuaTeX 1.12.0 == Lua 5.3
+--
+-- https://www.ctan.org/pkg/ant
+-- https://github.com/patoline/patoline
+-- https://sile-typesetter.org/
+-- https://www.speedata.de/en/
+
+-- tatic int getlist(lua_State * L)
+-- {
+--   lua_pushinteger(L, vlink(page_ins_head));
+--   lua_pushinteger(L, vlink(contrib_head));
+--   lua_pushinteger(L, page_disc);
+--   lua_pushinteger(L, split_disc);
+--   lua_pushinteger(L, vlink(page_head));
+--   lua_pushinteger(L, vlink(temp_head));
+--   lua_pushinteger(L, vlink(hold_head));
+--   lua_pushinteger(L, vlink(adjust_head));
+--   lua_pushinteger(L, best_page_break);
+--   lua_pushinteger(L, least_page_cost);
+--   lua_pushinteger(L, best_size);
+--   lua_pushinteger(L, vlink(pre_adjust_head));
+--   lua_pushinteger(L, vlink(align_head));
+-- }
+-- texnode.h
+-- buildpage.h
+
+-- #  define box_code      0 /* |chr_code| for `\.{\\box}' */
+-- #  define copy_code     1 /* |chr_code| for `\.{\\copy}' */
+-- #  define last_box_code 2 /* |chr_code| for `\.{\\lastbox}' */
+-- #  define vsplit_code   3 /* |chr_code| for `\.{\\vsplit}' */
+-- #  define tpack_code    4
+-- #  define vpack_code    5
+-- #  define hpack_code    6
+-- #  define vtop_code     7 /* |chr_code| for `\.{\\vtop}' */
+
+-- #  define tail_page_disc disc_ptr[copy_code] /* last item removed by page builder */
+-- #  define page_disc disc_ptr[last_box_code]  /* first item removed by page builder */
+-- #  define split_disc disc_ptr[vsplit_code]   /* first item removed by \.{\\vsplit} */
+
+-- extern halfword disc_ptr[(vsplit_code + 1)]; /* list pointers */
+
+-- extern halfword page_tail;      /* the final node on the current page */
+-- extern int page_contents;       /* what is on the current page so far? */
+-- extern scaled page_max_depth;   /* maximum box depth on page being built */
+-- extern halfword best_page_break;        /* break here to get the best page known so far */
+-- extern int least_page_cost;     /* the score for this currently best page */
+-- extern scaled best_size;        /* its |page_goal| */
+
 
 print('\n++++++++ LuaTeXRepl ++++++++')
 
@@ -257,9 +304,13 @@ LuaTeXRepl = lgi.package('LuaTeXRepl')
 --print(builder:add_from_file('luatexrepl-input_row.glade'))
 file = io.open('luatexrepl-input_row.glade', "rb") -- r read mode and b binary mode
 assert(file)
-content = file:read "*all" -- *a or *all reads the whole file
+input_row_xml = file:read "*all" -- *a or *all reads the whole file
 file:close()
-print(content)
+
+file = io.open('luatexrepl-nest_row.glade', "rb") -- r read mode and b binary mode
+assert(file)
+nest_row_xml = file:read "*all" -- *a or *all reads the whole file
+file:close()
 
 -- Create top level window with some properties and connect its 'destroy'
 -- signal to the event loop termination.
@@ -337,13 +388,12 @@ do
   local IR = InputRowWidget()
   InputRowClass = IR._class
   --InputRowClass = InputRow._class()
-  InputRowClass:set_template(GLib.Bytes(content))
+  InputRowClass:set_template(GLib.Bytes(input_row_xml))
   InputRowClass:bind_template_child_full('expander', false, 0)
   InputRowClass:bind_template_child_full('short_label', false, 0)
   InputRowClass:bind_template_child_full('long_label', false, 0)
   IR = nil
 end
---InputRow:set_template(GLib.Bytes(content))
 
 InputRow = {}
 function InputRow:new(index)
@@ -361,6 +411,65 @@ function InputRow:new(index)
   object:refresh()
   return object
 end
+function escape_markup(text)
+  return GLib.markup_escape_text(text, -1)
+end
+
+control_escapes = {}
+for i=0x0,0x1F do
+  control_escapes[utf8.char(i)] = utf8.char(0x2400 + i) --'\xE2\x90'..string.char(0x80+id)
+end
+function escape_control(text)
+  return text
+    :gsub('\r', '↩')
+    :gsub(' ', '␣')
+    :gsub('%c', control_escapes)
+    --:gsub('\r', '↵')
+
+  --'\xE2\x90'..string.char(0x80+id)
+  --text:gsub(' ', '␣')
+end
+-- TODO: font size control
+function string_of_tokens(tokens, param_start, params)
+  local start = tokens.loc or 1
+  print('tokens', tokens)
+  print("SIZE:", #tokens)
+  print("START:", start)
+  local result = ''
+  for i=start,#tokens do
+    local tok = tokens[i]
+    print("I:", i, "TOK:", tok)
+    if tok.cmdname == 'letter' then
+      result = result .. escape_markup(string.char(tok.mode))
+      -- Letter
+      -- return string.format(
+      --   '<token %x: %s (%d) %s (%d)>',
+      --   tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
+    elseif tok.cmdname == 'car_ret' then -- `car_ret`, which seems to be used for arguments
+      print('tok:', tok)
+      print("param:", param_start, 'tok.limit', tok.limit)
+      print('tok.mode 1 ', tok.mode)
+      local param = string_of_tokens(params[param_start + tok.mode])
+      print('tok.mode 2 ', tok.mode)
+      result = result .. '#' .. tok.mode .. '(' .. param .. ')'
+    elseif tok.cmdname == 'call' then
+      result = result .. '\\' .. escape_markup(tok.csname) .. ' '
+    else
+      print('tok:', tok)
+      assert(tok.csname == nil)
+      result = result .. '\\' .. escape_markup(tok.cmdname) .. ' '
+      -- -- Non-letter
+      -- return string.format(
+      --   '<token %x: %s (%d) %s [%d] %s%s%s>',
+      --   tok.tok, tok.cmdname, tok.command, tok.csname, tok.mode,
+      --   tok.active     and 'A' or '-',
+      --   tok.expandable and 'E' or '-',
+      --   tok.protected  and 'P' or '-')
+    --end
+    end
+  end
+  return '<tt>' .. result .. '</tt>'
+end
 function InputRow:refresh()
   print("\n\n")
   local size = token.inputstacksize()
@@ -373,36 +482,16 @@ function InputRow:refresh()
       local short_string = string.format("Y %d: ", self.index)
       print("SIZE:", #input_state.tokens)
       print("LOC:", input_state.tokens.loc)
-      for i=input_state.tokens.loc,#input_state.tokens do
-        tok = input_state.tokens[i]
-        print("I:", i, "TOK:", tok)
-        if tok.command == 11 then
-          short_string = short_string .. string.char(tok.mode)
-          -- Letter
-          -- return string.format(
-          --   '<token %x: %s (%d) %s (%d)>',
-          --   tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
-        elseif tok.command == 5 then -- `car_ret`, which seems to be used for arguments
-          short_string = short_string .. '#' .. tok.mode
-        else
-          short_string = short_string .. '\\' .. tok.cmdname .. ' '
-          -- -- Non-letter
-          -- return string.format(
-          --   '<token %x: %s (%d) %s [%d] %s%s%s>',
-          --   tok.tok, tok.cmdname, tok.command, tok.csname, tok.mode,
-          --   tok.active     and 'A' or '-',
-          --   tok.expandable and 'E' or '-',
-          --   tok.protected  and 'P' or '-')
-        --end
-        end
-      end
+      local short_string = string_of_tokens(input_state.tokens, input_state.limit, input_state.params)
+      print('markup', short_string)
       print("INPUT:", self.index)
       print("SHORT:", short_string)
-      self.short_label:set_text(short_string)
+      self.short_label:set_markup(string.format('Y %d: %s', self.index, short_string))
     else
       print("INPUT:", self.index)
       print("SHORT:", input_state.line)
-      self.short_label:set_text(string.format("X %d: %s", self.index, input_state.line))
+      local short_string = '<tt>' .. 'X ' .. self.index .. ': ' .. escape_markup(escape_control(input_state.line)) .. '</tt>'
+      self.short_label:set_markup(short_string)
     end
   end
   --self.short_label
@@ -427,7 +516,7 @@ end
 
 -- >  t = nodetree.analyze(tex.nest[1].head, {channel = 'str'})
 
-function refresh()
+function refresh_input()
   local stack_size = token.inputstacksize()
   print("STACK SIZE:", stack_size)
   print("INPUT_ROWS:", #input_rows)
@@ -453,7 +542,6 @@ function refresh()
     input_rows[i]:refresh()
   end
 end
-refresh()
 
 -- TODO: attach InputRow to InputRowWidget as userdata?
 
@@ -466,6 +554,122 @@ refresh()
 --Gtk.main()
 
 --\\directlua{require 'luatexrepl.lua'}\\xxx\\yyy a\\zzz b\\www c
+
+
+NestRowWidget = LuaTeXRepl:class('NestRow', Gtk.ListBoxRow)
+do
+  local IR = NestRowWidget()
+  NestRowClass = IR._class
+  --NestRowClass = NestRow._class()
+  NestRowClass:set_template(GLib.Bytes(nest_row_xml))
+  NestRowClass:bind_template_child_full('expander', false, 0)
+  NestRowClass:bind_template_child_full('short_label', false, 0)
+  NestRowClass:bind_template_child_full('long_label', false, 0)
+  IR = nil
+end
+
+NestRow = {}
+function NestRow:new(index)
+  local widget = NestRowWidget()
+  widget:init_template()
+  local object = {
+    index = index,
+    widget = widget,
+    expander = widget:get_template_child(NestRowWidget, 'expander'),
+    short_label = widget:get_template_child(NestRowWidget, 'short_label'),
+    long_label = widget:get_template_child(NestRowWidget, 'long_label')
+  }
+  setmetatable(object, self)
+  self.__index = self
+  object:refresh()
+  return object
+end
+
+function NestRow:refresh()
+  local name
+  local list
+  if type(self.index) == 'string' then
+    name = self.index
+    list = tex.getlist(self.index)
+  else
+    name = string.format("%d", self.index)
+    local size = tex.getnestptr()
+    if self.index > size then
+      name = name .. ' <out-of-scope>'
+      list = {}
+    else
+      list = tex.getnest(self.index).head
+    end
+  end
+  local text = nodetree.analyze(list, {channel = 'str', color = 'no'})
+  --print("INDEX:", self.index, "TOKENS:", nest_state.tokens)
+  self.short_label:set_text(name)
+  self.long_label:set_text(text)
+--self.short_label
+  --token.neststacksize
+  --token.getneststack
+end
+
+-- TODO: "step +10" button
+-- TODO: "step until next expand" button
+-- TODO: "step until smaller stack" button
+
+nest_rows = {}
+
+for k,v in pairs({'page_head'}) do
+  local row = NestRow:new(v)
+  nest_rows[v] = row
+  ui.nest_list_box:insert(row.widget, -1)
+end
+
+-- >  t = nodetree.analyze(tex.nest[1].head, {channel = 'str'})
+
+function refresh_nest()
+  local stack_size = tex.getnestptr()
+  print("STACK SIZE:", stack_size)
+  print("NEST_ROWS:", #nest_rows)
+  for i=stack_size+1,#nest_rows do
+    print("DELETE:", i)
+    local y = nest_rows[i]
+    print("Y:", y)
+    print("Y:", y.widget)
+    ui.nest_list_box:remove(y.widget)
+    nest_rows[i] = nil
+  end
+  for i=#nest_rows+1,stack_size do
+    print("ADD:", i)
+    local y = NestRow:new(i)
+    nest_rows[i] = y
+    print(i)
+    print(y)
+    print(y.widget)
+    ui.nest_list_box:insert(y.widget, -1)
+  end
+  print("OK:", #nest_rows == stack_size)
+  print("NEST:", nest_rows)
+  --for i=1,stack_size do
+  for i,row in pairs(nest_rows) do
+    print("NEST i:", i, " = ", nest_rows[i])
+    nest_rows[i]:refresh()
+  end
+end
+
+function refresh()
+  refresh_nest()
+  refresh_input()
+end
+refresh()
+
+-- tex.getlist()
+-- page_ins_head
+-- contrib_head
+-- page_head
+-- hold_head
+-- adjust_head
+-- pre_adjust_head
+-- page_discards_head
+-- split_discards_head
+
 
 print('-------- LuaTeXRepl GUI --------')
 
