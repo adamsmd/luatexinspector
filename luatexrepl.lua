@@ -306,7 +306,7 @@ GLib = lgi.require 'GLib'
 
 builder = Gtk.Builder()
 -- TODO: error checking
-print(builder:add_from_file('luatexrepl.glade'))
+print(builder:add_from_file('luatexrepl.ui'))
 -- TODO: assert
 print('++++++++ LuaTeXRepl GUI2 ++++++++')
 
@@ -316,13 +316,13 @@ ui = builder.objects
 LuaTeXRepl = lgi.package('LuaTeXRepl')
 
 --input_row_builder = Gtk.Builder()
---print(builder:add_from_file('luatexrepl-input_row.glade'))
-file = io.open('luatexrepl-input_row.glade', "rb") -- r read mode and b binary mode
+--print(builder:add_from_file('luatexrepl-input_row.ui'))
+file = io.open('luatexrepl-input_row.ui', "rb") -- r read mode and b binary mode
 assert(file)
 input_row_xml = file:read "*all" -- *a or *all reads the whole file
 file:close()
 
-file = io.open('luatexrepl-nest_row.glade', "rb") -- r read mode and b binary mode
+file = io.open('luatexrepl-nest_row.ui', "rb") -- r read mode and b binary mode
 assert(file)
 nest_row_xml = file:read "*all" -- *a or *all reads the whole file
 file:close()
