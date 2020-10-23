@@ -5,6 +5,8 @@
 --
 -- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape --lua=luatexrepl-startup.lua luatexrepl.tex
 -- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape luatexrepl.tex
+--
+-- GTK_DEBUG=interactive PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" lualatex --shell-escape luatexrepl.tex
 -- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" lualatex --shell-escape luatexrepl.tex
 --
 -- make && yes | cp luatex luahbtex ../../../../../Master/bin/x86_64-linux/
@@ -118,7 +120,6 @@ for _k,v in pairs({'local', 'share', 'luatexrepl'}) do
   lfs.mkdir(dirname)
 end
 prompt.history = dirname .. '/history'
-
 print('-------- LuaTeXRepl luaprompt --------')
 
 print('++++++++ LuaTeXRepl Functions ++++++++')
@@ -300,23 +301,22 @@ print('++++++++ LuaTeXRepl GUI ++++++++')
 -- https://github.com/pavouk/lgi/blob/master/samples/gtk-demo/demo-treeview-editable.lua
 
 lgi = require 'lgi'
-Gtk = lgi.require 'Gtk'
-GLib = lgi.require 'GLib'
+GLib = lgi.GLib
+GObject = lgi.GObject
+Gtk = lgi.Gtk
+--Gtk = lgi.require 'Gtk'
+--GLib = lgi.require 'GLib'
 --assert = lgi.assert
+-- dump(Gtk.Widget:_resolve(true), 3)
 
 builder = Gtk.Builder()
--- TODO: error checking
-print(builder:add_from_file('luatexrepl.ui'))
--- TODO: assert
-print('++++++++ LuaTeXRepl GUI2 ++++++++')
+-- TODO: assert/error checking
+builder:add_from_file('luatexrepl.ui')
 
 ui = builder.objects
 
-
 LuaTeXRepl = lgi.package('LuaTeXRepl')
 
---input_row_builder = Gtk.Builder()
---print(builder:add_from_file('luatexrepl-input_row.ui'))
 file = io.open('luatexrepl-input_row.ui', "rb") -- r read mode and b binary mode
 assert(file)
 input_row_xml = file:read "*all" -- *a or *all reads the whole file
@@ -331,16 +331,6 @@ file:close()
 -- signal to the event loop termination.
 window = ui.window
 
--- local step_button = ui.step_button
--- function step_button:on_clicked()
---   -- TODO
--- end
-
--- local expand_button = ui.expand_button
--- function expand_button:on_clicked()
---   -- TODO
--- end
-
 -- Icons:
 --   document-page-setup
 --   text-x-generic-templpate
@@ -351,8 +341,6 @@ statusbar = ui.statusbar
 statusbar_ctx = statusbar:get_context_id('default')
 statusbar:push(statusbar_ctx, 'This is statusbar message.')
 
--- on_clicked = function() window:destroy() end
-
 function window:on_destroy()
   Gtk.main_quit()
 end
@@ -361,27 +349,35 @@ function ui.file_quit_menu_item:on_activate()
   window:destroy()
 end
 
+function ui.prime_button:on_clicked()
+  prime()
+end
+-- TODO: colors based on non-priming refresh
+
 function ui.step_button:on_clicked()
-  print("EXECUTE")
-  tex.execute()
+  local result = tex.execute()
+  ui.step_button.sensitive = result
   refresh()
 end
 
 function ui.expand_button:on_clicked()
-  print("EXPAND")
   tex.expand()
   refresh()
 end
+-- TODO: wavey line when can't determine if expand is safe
 
-function ui.refresh_button:on_clicked()
-  print("REFRESH")
-  refresh()
+function ui.expand_many_button:on_clicked()
+  prime()
+  while expandable ~= 0 do
+    tex.expand()
+    refresh()
+    prime()
+  end
 end
 
--- function about_button:on_clicked()
---   dlg:run()
---   dlg:hide()
--- end
+function ui.refresh_button:on_clicked()
+  refresh()
+end
 
 -- Connect 'Quit' actions.
 --function ui.Quit:on_activate()
@@ -397,12 +393,18 @@ end
 window:show_all()
 
 -- Ctrl-C = Gtk.main_quit()
-
+print('++++++++ Input Stack ++++++++')
+function prime()
+  if expandable == nil then
+    print('PRIMED')
+    token.put_next(token.get_next())
+    refresh()
+  end
+end
 InputRowWidget = LuaTeXRepl:class('InputRow', Gtk.ListBoxRow)
 do
   local IR = InputRowWidget()
   InputRowClass = IR._class
-  --InputRowClass = InputRow._class()
   InputRowClass:set_template(GLib.Bytes(input_row_xml))
   InputRowClass:bind_template_child_full('expander', false, 0)
   InputRowClass:bind_template_child_full('short_label', false, 0)
@@ -434,42 +436,77 @@ for i=0x0,0x1F do
   control_escapes[utf8.char(i)] = utf8.char(0x2400 + i)
 end
 function escape_control(text)
-  return text
-    :gsub('\r', '↩')
-    :gsub(' ', '␣')
-    :gsub('%c', control_escapes)
-    --:gsub('\r', '↵')
+  return
+    '<span show="line-breaks|ignorables">'
+    .. text
+      :gsub('\r', '↩')
+      :gsub('\n', '↵')
+      :gsub(' ', '␣')
+      :gsub('%c', control_escapes)
+    .. '</span>'
 end
 function escape_all(text)
-  return escape_markup(escape_control(text))
+  return escape_control(escape_markup(text))
 end
+
 -- TODO: font size control
+-- TODO: show box registers
+-- TODO: show disc_ptr
+-- TODO: step history
+expandable = nil -- NOTE: "nil | 0 | 1" not "true | false"
+--unvbox @outputbox
+
+-- box type list_ptr SHIPPING_PAGE pagebox pre_box set_box sub_box
+-- tex/equivalents.h:#define box(A)       equiv(box_base+(A))
+-- tex.getbox
+-- >  tex.box['@outputbox']
+--@cclv
+--to\@colht
+--@texttop
+
+-- BUG IN PANGO MARKUP:
+-- The following renders the spaces between "a" and "b"
+-- as well as "e" and "f", when it shouldn't.
+--    a b<span show="spaces">c d</span>e f
+-- For some reason some tags like <u> prevent this:
+--    a b<u>x</u><span show="spaces">c d</span><u>y</u>e f
+
+letter_cmds = {
+  char_num = true,
+  letter = true,
+  other_char = true,
+  --char_given = true,
+  run_char_num_mmode = true,
+  run_math_char_num_mmode = true,
+} -- TODO: others?
 function string_of_tokens(tokens, param_start, params)
-  print("STRING_OF_TOK:", prompt.describe(tokens))
-  if tokens == nil then return "**NIL**" end
+  if tokens == nil then return "ERROR: NIL" end
   local start = tokens.loc or 1
   local result = ''
   for i=start,#tokens do
     local tok = tokens[i]
-    if tok.cmdname == 'letter' then
-      result = result .. escape_all(string.char(tok.mode))
+    local tok_string
+    if letter_cmds[tok.cmdname] ~= nil then
+      tok_string = escape_all(string.char(tok.mode))
       -- Letter
       -- return string.format(
       --   '<token %x: %s (%d) %s (%d)>',
       --   tok.tok, tok.cmdname, tok.command, string.char(tok.mode), tok.mode)
-    elseif tok.cmdname == 'car_ret' then -- `car_ret`, which seems to be used for arguments
-      print("CALL REC", param_start, prompt.describe(tok))
-      print("PARAMS", prompt.describe(params))
-      result = result .. '#' .. tok.mode
+    elseif tok.cmdname == 'left_brace' then
+      tok_string = '{'
+    elseif tok.cmdname == 'right_brace' then
+      tok_string = '}'
+    elseif tok.cmdname == 'car_ret' then -- `car_ret` = out_param_cmd, which is used for arguments
+      tok_string = '#' .. tok.mode
       local param = params[param_start + tok.mode]
       if param ~= nil then
-        result = result .. '(' .. string_of_tokens(param, nil, nil) .. ')'
+        tok_string = tok_string .. '(' .. string_of_tokens(param, nil, nil) .. ')'
       end
-    elseif tok.cmdname == 'call' then
-      result = result .. '\\' .. escape_all(tok.csname) .. ' '
+    elseif tok.csname ~= nil then
+      tok_string = '\\' .. escape_all(tok.csname) .. ' '
     else
       --assert(tok.csname == nil)
-      result = result .. '\\' .. escape_all(tok.cmdname) .. ' '
+      tok_string = '\\' .. escape_all(tok.cmdname) .. ' '
       -- -- Non-letter
       -- return string.format(
       --   '<token %x: %s (%d) %s [%d] %s%s%s>',
@@ -479,14 +516,21 @@ function string_of_tokens(tokens, param_start, params)
       --   tok.protected  and 'P' or '-')
     --end
     end
+    if tok.cmdname ~= 'car_ret' then
+      expandable = expandable or (tok.expandable and 1 or 0)
+    end
+    if tok.expandable then
+      tok_string = '<u><span fgcolor="#008800">' .. tok_string .. '</span></u>'
+    end
+    result = result .. tok_string
   end
-  return '<tt>' .. result .. '</tt>'
+  return result
 end
+
 function InputRow:refresh()
-  print('INPUT REFRESH: ', self.index, self.markup)
   local size = token.inputstacksize()
   if self.index > size then
-    self.short_label:set_text("<out-of-scope>")
+    self.short_label:set_text("ERROR: OUT OF SCOPE")
   else
     local input_state = token.getinputstack(self.index)
     self.long_label:set_markup(escape_markup(prompt.describe(input_state)))
@@ -510,9 +554,6 @@ function InputRow:refresh()
     end
     self.markup = markup
   end
-  --self.short_label
-  --token.inputstacksize
-  --token.getinputstack
 end
 
 -- TODO: "step +10" button
@@ -520,20 +561,19 @@ end
 -- TODO: show step counter
 -- TODO: "step until next expand" button
 -- TODO: "step until smaller stack" button
+-- TODO: "expand all" button
+-- TODO: "expand and step" button
+-- TODO: show "last command"
+-- TODO: disable expand button
+-- TODO: check box for whether to show parameters inline
+-- TODO: STEP-Expand* button
 
 input_rows = {}
-
 do
   local y = InputRow:new(0)
   input_rows[0] = y
-  print(i)
-  print(y)
-  print(y.widget)
   ui.input_list_box:insert(y.widget, -1)
 end
-
--- >  t = nodetree.analyze(tex.nest[1].head, {channel = 'str'})
-
 function refresh_input()
   local stack_size = token.inputstacksize()
   for i=stack_size+1,#input_rows do
@@ -546,24 +586,25 @@ function refresh_input()
     input_rows[i] = y
     ui.input_list_box:insert(y.widget, -1)
   end
-  for i=0,stack_size do
+  expandable = nil
+  for i=stack_size,0,-1 do
     input_rows[i]:refresh()
   end
+  ui.prime_button.sensitive = expandable == nil
+  ui.expand_button.sensitive = expandable ~= 0 -- TODO: == 1
+  ui.expand_many_button.sensitive = expandable ~= 0
 end
+
+-- i1 = ui.treestore:append(nil, { "id", "<b>text</b>", nil})
+-- i2 = ui.treestore:append(i1, { "id2", "test2", nil})
+
+print('-------- Input Stack --------')
 
 -- TODO: attach InputRow to InputRowWidget as userdata?
 
-  --local x = InputRow:new(0)
-  --ui.input_list_box:insert(x.widget, -1)
-
---y = InputRow:new(2)
---ui.input_list_box:insert(y.widget, -1)
-
 --Gtk.main()
 
---\\directlua{require 'luatexrepl.lua'}\\xxx\\yyy a\\zzz b\\www c
-
-
+print('++++++++ Nest Stack ++++++++')
 NestRowWidget = LuaTeXRepl:class('NestRow', Gtk.ListBoxRow)
 do
   local IR = NestRowWidget()
@@ -596,23 +637,27 @@ function NestRow:refresh()
   local name
   local list
   if type(self.index) == 'string' then
-    name = 'nest ' .. self.index
+    name = string.format('[%s]', self.index)
     list = tex.getlist(self.index)
     -- TODO: are these list nils a bug?
+  elseif self.index <= 0 then
+    name = string.format("[box #%d]", -self.index)
+    list = tex.getbox(-self.index)
   else
-    name = string.format("%d", self.index)
+    name = string.format("[node stack #%d]", self.index)
     local size = tex.getnestptr()
     if self.index > size then
-      name = name .. ' <out-of-scope>'
+      name = name .. ' ERROR: OUT OF SCOPE'
       list = nil
     else
       list = tex.getnest(self.index).head
     end
   end
+  -- TODO: put length (first node?) in header
   self.short_label:set_text(name)
   local markup
   if list == nil then
-    markup = '<EMPTY>'
+    markup = '<empty>'
   else
     markup = nodetree.analyze(list, {channel = 'str', color = 'no'})
   end
@@ -634,6 +679,7 @@ end
 -- TODO: "step +10" button
 -- TODO: "step until next expand" button
 -- TODO: "step until smaller stack" button
+-- TODO: shipout callback
 
 nest_rows = {}
 
@@ -655,11 +701,17 @@ for k,v in pairs({
   nest_rows[v] = row
   ui.nest_list_box:insert(row.widget, -1)
 end
+box_rows = {}
 
 -- >  t = nodetree.analyze(tex.nest[1].head, {channel = 'str'})
 
 function refresh_nest()
   local stack_size = tex.getnestptr()
+  for k,v in pairs(box_rows) do
+    local y = box_rows[k]
+    ui.nest_list_box:remove(y.widget)
+    box_rows[k] = nil
+  end
   for i=stack_size+1,#nest_rows do
     local y = nest_rows[i]
     ui.nest_list_box:remove(y.widget)
@@ -668,33 +720,29 @@ function refresh_nest()
   for i=#nest_rows+1,stack_size do
     local y = NestRow:new(i)
     nest_rows[i] = y
-    print(i)
-    print(y)
-    print(y.widget)
     ui.nest_list_box:insert(y.widget, -1)
   end
-  --for i=1,stack_size do
-  for i,row in pairs(nest_rows) do
-    nest_rows[i]:refresh()
+  for i=0,65535 do
+    if tex.getbox(i) ~= nil then
+      local y = NestRow:new(-i)
+      box_rows[i] = y
+      ui.nest_list_box:insert(y.widget, -1)
+    end
+  end
+  for k,row in pairs(nest_rows) do
+    row:refresh()
+  end
+  for k,row in pairs(box_rows) do
+    row:refresh()
   end
 end
+print('-------- Nest Stack --------')
 
 function refresh()
   refresh_nest()
   refresh_input()
 end
 refresh()
-
--- tex.getlist()
--- page_ins_head
--- contrib_head
--- page_head
--- hold_head
--- adjust_head
--- pre_adjust_head
--- page_discards_head
--- split_discards_head
-
 
 print('-------- LuaTeXRepl GUI --------')
 

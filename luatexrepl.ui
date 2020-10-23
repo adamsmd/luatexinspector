@@ -47,6 +47,16 @@
       </object>
     </child>
   </object>
+  <object class="GtkTreeStore" id="treestore">
+    <columns>
+      <!-- column-name id -->
+      <column type="gchararray"/>
+      <!-- column-name text -->
+      <column type="gchararray"/>
+      <!-- column-name pixbuf -->
+      <column type="GdkPixbuf"/>
+    </columns>
+  </object>
   <object class="GtkApplicationWindow" id="window">
     <property name="can_focus">False</property>
     <property name="title" translatable="yes">LuaTeX REPL</property>
@@ -235,10 +245,44 @@
               </packing>
             </child>
             <child>
+              <object class="GtkToolButton" id="expand_many_button">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="label" translatable="yes">Expand_*</property>
+                <property name="use_underline">True</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="homogeneous">True</property>
+              </packing>
+            </child>
+            <child>
               <object class="GtkToolButton" id="expand_button">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
                 <property name="label" translatable="yes">_Expand</property>
+                <property name="use_underline">True</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="homogeneous">True</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkSeparatorToolItem">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+              </object>
+              <packing>
+                <property name="expand">False</property>
+                <property name="homogeneous">True</property>
+              </packing>
+            </child>
+            <child>
+              <object class="GtkToolButton" id="prime_button">
+                <property name="visible">True</property>
+                <property name="can_focus">False</property>
+                <property name="label" translatable="yes">_Prime</property>
                 <property name="use_underline">True</property>
               </object>
               <packing>
@@ -266,58 +310,188 @@
           </packing>
         </child>
         <child>
-          <object class="GtkPaned">
+          <object class="GtkPaned" id="paned">
             <property name="visible">True</property>
             <property name="can_focus">True</property>
             <property name="position">600</property>
             <property name="position_set">True</property>
             <property name="wide_handle">True</property>
             <child>
-              <object class="GtkScrolledWindow">
+              <object class="GtkPaned">
                 <property name="visible">True</property>
                 <property name="can_focus">True</property>
-                <property name="shadow_type">in</property>
                 <child>
-                  <object class="GtkViewport">
+                  <object class="GtkBox">
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
-                    <property name="shadow_type">none</property>
+                    <property name="orientation">vertical</property>
                     <child>
-                      <object class="GtkListBox" id="nest_list_box">
+                      <object class="GtkLabel">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
+                        <property name="label" translatable="yes">Node Lists</property>
+                        <property name="selectable">True</property>
+                        <property name="xalign">0</property>
                       </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">0</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkScrolledWindow">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                        <property name="shadow_type">in</property>
+                        <child>
+                          <object class="GtkViewport">
+                            <property name="visible">True</property>
+                            <property name="can_focus">False</property>
+                            <property name="shadow_type">none</property>
+                            <child>
+                              <object class="GtkListBox" id="nest_list_box">
+                                <property name="visible">True</property>
+                                <property name="can_focus">False</property>
+                              </object>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
+                      <packing>
+                        <property name="expand">True</property>
+                        <property name="fill">True</property>
+                        <property name="position">1</property>
+                      </packing>
                     </child>
                   </object>
+                  <packing>
+                    <property name="resize">False</property>
+                    <property name="shrink">True</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkBox">
+                    <property name="visible">True</property>
+                    <property name="can_focus">False</property>
+                    <property name="orientation">vertical</property>
+                    <child>
+                      <object class="GtkLabel">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="label" translatable="yes">Tree</property>
+                        <property name="selectable">True</property>
+                        <property name="xalign">0</property>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">0</property>
+                      </packing>
+                    </child>
+                    <child>
+                      <object class="GtkTreeView">
+                        <property name="visible">True</property>
+                        <property name="can_focus">True</property>
+                        <property name="model">treestore</property>
+                        <child internal-child="selection">
+                          <object class="GtkTreeSelection"/>
+                        </child>
+                        <child>
+                          <object class="GtkTreeViewColumn" id="text_column">
+                            <property name="resizable">True</property>
+                            <property name="title" translatable="yes">String</property>
+                            <property name="clickable">True</property>
+                            <property name="reorderable">True</property>
+                            <child>
+                              <object class="GtkCellRendererText" id="text_cell_renderer"/>
+                              <attributes>
+                                <attribute name="markup">1</attribute>
+                              </attributes>
+                            </child>
+                          </object>
+                        </child>
+                        <child>
+                          <object class="GtkTreeViewColumn" id="pixbuf_column">
+                            <property name="resizable">True</property>
+                            <property name="title" translatable="yes">Image</property>
+                            <property name="clickable">True</property>
+                            <property name="reorderable">True</property>
+                            <child>
+                              <object class="GtkCellRendererPixbuf" id="pixbuf_cell_renderer"/>
+                              <attributes>
+                                <attribute name="pixbuf">2</attribute>
+                              </attributes>
+                            </child>
+                          </object>
+                        </child>
+                      </object>
+                      <packing>
+                        <property name="expand">False</property>
+                        <property name="fill">True</property>
+                        <property name="position">1</property>
+                      </packing>
+                    </child>
+                  </object>
+                  <packing>
+                    <property name="resize">True</property>
+                    <property name="shrink">True</property>
+                  </packing>
                 </child>
               </object>
               <packing>
                 <property name="resize">True</property>
-                <property name="shrink">True</property>
+                <property name="shrink">False</property>
               </packing>
             </child>
             <child>
-              <object class="GtkScrolledWindow">
+              <object class="GtkBox">
                 <property name="visible">True</property>
-                <property name="can_focus">True</property>
-                <property name="shadow_type">in</property>
+                <property name="can_focus">False</property>
+                <property name="orientation">vertical</property>
                 <child>
-                  <object class="GtkViewport">
+                  <object class="GtkLabel">
                     <property name="visible">True</property>
                     <property name="can_focus">False</property>
-                    <property name="shadow_type">none</property>
+                    <property name="label" translatable="yes">Input Stack</property>
+                    <property name="selectable">True</property>
+                    <property name="xalign">0</property>
+                  </object>
+                  <packing>
+                    <property name="expand">False</property>
+                    <property name="fill">True</property>
+                    <property name="position">0</property>
+                  </packing>
+                </child>
+                <child>
+                  <object class="GtkScrolledWindow">
+                    <property name="visible">True</property>
+                    <property name="can_focus">True</property>
+                    <property name="shadow_type">in</property>
                     <child>
-                      <object class="GtkListBox" id="input_list_box">
+                      <object class="GtkViewport">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
+                        <property name="shadow_type">none</property>
+                        <child>
+                          <object class="GtkListBox" id="input_list_box">
+                            <property name="visible">True</property>
+                            <property name="can_focus">False</property>
+                          </object>
+                        </child>
                       </object>
                     </child>
                   </object>
+                  <packing>
+                    <property name="expand">True</property>
+                    <property name="fill">True</property>
+                    <property name="position">1</property>
+                  </packing>
                 </child>
               </object>
               <packing>
                 <property name="resize">True</property>
-                <property name="shrink">True</property>
+                <property name="shrink">False</property>
               </packing>
             </child>
           </object>
