@@ -303,11 +303,19 @@ print('++++++++ LuaTeXRepl GUI ++++++++')
 lgi = require 'lgi'
 GLib = lgi.GLib
 GObject = lgi.GObject
+Gdk = lgi.Gdk
 Gtk = lgi.Gtk
+GtkSource = lgi.GtkSource
 --Gtk = lgi.require 'Gtk'
 --GLib = lgi.require 'GLib'
 --assert = lgi.assert
 -- dump(Gtk.Widget:_resolve(true), 3)
+
+-- Trigger a "type register" of GtkSource.View.
+-- I don't know why this triggers it, but it does.
+-- Must happen before loading the builder file.
+GtkSource.View {}
+
 
 builder = Gtk.Builder()
 -- TODO: assert/error checking
@@ -330,7 +338,7 @@ file:close()
 -- Create top level window with some properties and connect its 'destroy'
 -- signal to the event loop termination.
 window = ui.window
-
+print('WINDOW', window)
 -- Icons:
 --   document-page-setup
 --   text-x-generic-templpate
@@ -340,6 +348,156 @@ window = ui.window
 statusbar = ui.statusbar
 statusbar_ctx = statusbar:get_context_id('default')
 statusbar:push(statusbar_ctx, 'This is statusbar message.')
+
+input = ui.input_source_view
+output = ui.output_source_view
+
+input.buffer.language = GtkSource.LanguageManager.get_default():get_language('lua')
+--output.buffer.language = GtkSource.LanguageManager.get_default():get_language('lua')
+
+scheme = GtkSource.StyleSchemeManager.get_default():get_scheme('cobalt')
+input.buffer:set_style_scheme(scheme)
+output.buffer:set_style_scheme(scheme)
+
+function append_output(text, tag)
+  -- Append the text.
+  local end_iter = output.buffer:get_end_iter()
+  local offset = end_iter:get_offset()
+  output.buffer:insert(end_iter, text, -1)
+  end_iter = output.buffer:get_end_iter()
+
+  -- Apply proper tag.
+  tag = output.buffer.tag_table.tag[tag]
+  if tag then
+    output.buffer:apply_tag(tag, output.buffer:get_iter_at_offset(offset), end_iter)
+  end
+
+  -- Scroll so that the end of the buffer is visible, but only in
+  -- case that cursor is at the very end of the view.  This avoids
+  -- autoscroll when user tries to select something in the output
+  -- view.
+  -- local cursor = output.buffer:get_iter_at_mark(output.buffer:get_insert())
+  -- if end_iter:get_offset() == cursor:get_offset() then
+  --   output:scroll_mark_onscreen(output_end_mark)
+  -- end
+end
+
+-- Execute Lua command from entry and log result into output.
+function execute()
+  -- Get contents of the entry.
+  local text = input.buffer.text:gsub('^%s?(=)%s*', 'return ')
+  if text == '' then return end
+
+  -- Add command to the output view.
+  append_output(text:gsub('\n*$', '\n', 1), 'command')
+
+  -- Try to execute the command.
+  local chunk, answer = (loadstring or load)(text, '=stdin')
+  local tag = 'error'
+  if not chunk then
+      answer = answer:gsub('\n*$', '\n', 1)
+  else
+      (function(ok, ...)
+          if not ok then
+            answer = tostring(...):gsub('\n*$', '\n', 1)
+          else
+            -- Stringize the results.
+            answer = {}
+            for i = 1, select('#', ...) do
+                answer[#answer + 1] = tostring(select(i, ...))
+            end
+            answer = #answer > 0 and table.concat(answer, '\t') .. '\n'
+            tag = 'result'
+          end
+      end)(pcall(chunk))
+  end
+
+  -- Add answer to the output pane.
+  if answer then append_output(answer, tag) end
+
+  if tag == 'error' then
+      -- Try to parse the error and find line to place the cursor
+      local line = answer:match('^stdin:(%d+):')
+      if line then
+        input.buffer:place_cursor(input.buffer:get_iter_at_line_offset(line - 1, 0))
+      end
+  else
+      -- -- Store current text as the last item in the history, but
+      -- -- avoid duplicating items.
+      -- history[#history] = (history[#history - 1] ~= text) and text or nil
+
+      -- -- Add new empty item to the history, point position to it.
+      -- history.position = #history + 1
+      -- history[history.position] = ''
+
+      -- -- Enable/disable history navigation actions.
+      -- actions.up.sensitive = history.position > 1
+      -- actions.down.sensitive = false
+
+      -- Clear contents of the entry buffer.
+      input.buffer.text = ''
+  end
+end
+
+
+-- Intercept assorted keys in order to implement history
+-- navigation.  Ideally, this should be implemented using
+-- Gtk.BindingKey mechanism, but lgi still lacks possibility to
+-- derive classes and install new signals, which is needed in order
+-- to implement this.
+local keytable = {
+  [Gdk.KEY_Return] = execute,
+  --[Gdk.KEY_Up] = actions.up,
+  --[Gdk.KEY_Down] = actions.down,
+}
+
+function input:on_key_press_event(event)
+  -- Lookup action to be activated for specified key combination.
+  local action = keytable[event.keyval]
+  local state = event.state
+  local without_control = not state.CONTROL_MASK 
+  if not action or state.SHIFT_MASK
+      --or actions.multiline.active == without_control
+      then
+      return false
+  end
+
+  -- Ask textview whether it still wants to consume the key.
+  if self:im_context_filter_keypress(event) then return true end
+
+  -- Activate specified action.
+  action()
+
+  -- Do not continue distributing the signal to the view.
+  return true
+end
+
+-- Override global 'print' and 'io.write' handlers, so that output
+-- goes to our output window (with special text style).
+function buffer_print(...)
+  local outs = {}
+  for i = 1, select('#', ...) do
+    outs[#outs + 1] = tostring(select(i, ...))
+  end
+  append_output(table.concat(outs, '\t') .. '\n', 'log')
+end
+
+function buffer_write(...)
+  for i = 1, select('#', ...) do
+    append_output(select(i, ...), 'log')
+  end
+end
+
+function run()
+  local old_print = print
+  local old_write = io.write
+  _G.print = buffer_print
+  _G.io.write = buffer_write
+  Gtk.main()
+  -- Revert to old printing routines.
+  print = old_print
+  io.write = old_write
+end
 
 function window:on_destroy()
   Gtk.main_quit()
@@ -556,6 +714,136 @@ function InputRow:refresh()
   end
 end
 
+-- TODO: larger view of pixbuf of selected node in a separate panel
+
+-- Tree = {}
+-- Tree.__index = Tree
+
+-- function Tree.__call(tree_store, get_text, get_pixbuf, get_children)
+-- end
+
+-- function changed(old, new)
+--   if old == nil then
+--     return string.format('<span bgcolor="#FFFFAA">%s</span>', new)
+--   elseif old ~= new then
+--     return string.format('<span bgcolor="#FFBBBB">%s</span>', new)
+--   else
+--     return new
+--   end
+-- end
+
+-- function Tree:add_child(k, o)
+--   local iter = self.tree_store:append(self.iter, { nil, nil, nil })
+--   local tree = Tree(self.id .. ':' .. k, self.tree_store, iter, get_text_key(k))
+--   self.fields[k] = tree
+--   tree:refresh(o)
+--   return tree
+-- end
+
+-- function Tree:delete_child(k)
+--   self.tree_store:remove(self.children[k].iter)
+--   self.children[k] = nil
+-- end
+
+-- function Tree:refresh(o, k)
+--   local old_text = self.text
+
+--   local text, pixbuf, children_o = self:get_data(o, k)
+--   self.text = text
+--   self.pixbuf = pixbuf
+
+--   self.tree_store:set(self.iter, { self.id, changed(old_text, text), pixbuf })
+
+--   for k,v in pairs(self.children) do
+--     if children_o[k] == nil then
+--       self:delete_child(k)
+--     end
+--   end
+--   for k,v_o in pairs(children) do
+--     if self.children[k] == nil then
+--       self:add_child(k, v_o)
+--     else
+--       self.children[k]:refresh(v_o)
+--     end
+--   end
+-- end
+
+-- function input_state_get_data(self, o, )
+--   local size = token.inputstacksize()
+--   if self.input_ptr > size then
+--     return 'ERROR: OUT OF SCOPE', nil, {}
+--   else
+--     local input_state = token.getinputstack(self.input_ptr)
+--     local markup
+--     if input_state.tokens ~= nil then
+--       local short_string = string_of_tokens(input_state.tokens, input_state.limit, input_state.params)
+--       markup = string.format(
+--         '<tt><span fgcolor="#808080">[%d]</span> %s</tt>',
+--         self.input_ptr, short_string)
+--     else
+--       markup = string.format(
+--         '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
+--         self.input_ptr, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
+--     end
+--     return markup, nil, input_state
+--   end
+-- end
+
+-- function default_get_data(self, o, k)
+--   if type(o) == 'string' then
+--     return k .. ' = ' .. o, nil, {}
+--   elseif .. then
+--   else
+--     return k .. ' = UNKNOWN(' .. type(o) .. ')', nil, {}
+--   end
+-- end
+
+InputState = {}
+InputState.__index = InputState
+
+function InputState.__call(input_ptr, tree_iter)
+   local o = {}
+   setmetatable(o, InputState)
+   o.tree_iter = tree_iter
+   o.input_ptr = input_ptr
+   o.markup = markup
+   return o
+end
+
+function InputState:refresh()
+  -- ui.input_tree_store:set(i, {...})
+  -- ui.input_tree_store:get_value(self, 0).value
+  -- ui.input_tree_store:set_value(self, 0, GObject.Value(GObject.Type.STRING, "abc"))
+  local size = token.inputstacksize()
+  if self.input_ptr > size then
+    ui.input_tree_store:set(self, { 'id', 'ERROR: OUT OF SCOPE', nil })
+  else
+    local input_state = token.getinputstack(self.input_ptr)
+    --self.long_label:set_markup(escape_markup(prompt.describe(input_state)))
+    local markup
+    if input_state.tokens ~= nil then
+      local short_string = string_of_tokens(input_state.tokens, input_state.limit, input_state.params)
+      markup = string.format(
+        '<tt><span fgcolor="#808080">[%d]</span> %s</tt>',
+        self.input_ptr, short_string)
+    else
+      markup = string.format(
+        '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
+        self.input_ptr, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
+    end
+    local colored_markup
+    if self.markup == nil then
+      colored_markup = string.format('<span bgcolor="#FFFFAA">%s</span>', markup)
+    elseif markup ~= self.markup then
+      colored_markup = string.format('<span bgcolor="#FFBBBB">%s</span>', markup)
+    else
+      colored_markup = markup
+    end
+    ui.input_tree_store:set_value(self, 0, GObject.Value(GObject.Type.STRING, colored_markup))
+    self.markup = markup
+  end
+end
+
 -- TODO: "step +10" button
 -- TODO: "step k" button
 -- TODO: show step counter
@@ -569,10 +857,15 @@ end
 -- TODO: STEP-Expand* button
 
 input_rows = {}
+input_tree = {}
+
 do
   local y = InputRow:new(0)
   input_rows[0] = y
   ui.input_list_box:insert(y.widget, -1)
+
+  local z = ui.input_tree_store:append(nil, { '0', 'UNINITIALIZED', nil })
+  input_tree[0] = z
 end
 function refresh_input()
   local stack_size = token.inputstacksize()
