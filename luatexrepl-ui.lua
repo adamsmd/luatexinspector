@@ -157,7 +157,7 @@ local input_position_label = ui.input_position_label
 -- Change indicator text when position in the entry changes.
 input.buffer.on_notify['cursor-position'] = function(buffer)
   local iter = buffer:get_iter_at_mark(buffer:get_insert())
-  input_position_label.label = iter:get_line() + 1 .. ':' .. iter:get_line_offset() + 1
+  input_position_label.label = string.format('%d:%d', iter:get_line() + 1, iter:get_line_offset() + 1)
 end
 
 

@@ -337,37 +337,11 @@ LuaTeXRepl = lgi.package('LuaTeXRepl')
 print('++++++++ Input Stack ++++++++')
 function prime()
   if expandable == nil then
-    print('PRIMED')
     token.put_next(token.get_next())
     refresh()
   end
 end
-InputRowWidget = LuaTeXRepl:class('InputRow', Gtk.ListBoxRow)
-do
-  local IR = InputRowWidget()
-  InputRowClass = IR._class
-  InputRowClass:set_template(GLib.Bytes(input_row_xml))
-  InputRowClass:bind_template_child_full('expander', false, 0)
-  InputRowClass:bind_template_child_full('short_label', false, 0)
-  InputRowClass:bind_template_child_full('long_label', false, 0)
-  IR = nil
-end
 
-InputRow = {}
-function InputRow:new(index)
-  local widget = InputRowWidget()
-  widget:init_template()
-  local object = {
-    index = index,
-    widget = widget,
-    expander = widget:get_template_child(InputRowWidget, 'expander'),
-    short_label = widget:get_template_child(InputRowWidget, 'short_label'),
-    long_label = widget:get_template_child(InputRowWidget, 'long_label')
-  }
-  setmetatable(object, self)
-  self.__index = self
-  return object
-end
 function escape_markup(text)
   return GLib.markup_escape_text(text, -1)
 end
@@ -394,6 +368,7 @@ end
 -- TODO: show box registers
 -- TODO: show disc_ptr
 -- TODO: step history
+-- TODO: Gtk has no way to select text in a tree view (put it in a separate label?)
 expandable = nil -- NOTE: "nil | 0 | 1" not "true | false"
 --unvbox @outputbox
 
@@ -457,44 +432,12 @@ function string_of_tokens(tokens, param_start, params)
       --   tok.protected  and 'P' or '-')
     --end
     end
-    if tok.cmdname ~= 'car_ret' then
-      expandable = expandable or (tok.expandable and 1 or 0)
-    end
     if tok.expandable then
       tok_string = '<u><span fgcolor="#008800">' .. tok_string .. '</span></u>'
     end
     result = result .. tok_string
   end
   return result
-end
-
-function InputRow:refresh()
-  local size = token.inputstacksize()
-  if self.index > size then
-    self.short_label:set_text("ERROR: OUT OF SCOPE")
-  else
-    local input_state = token.getinputstack(self.index)
-    self.long_label:set_markup(escape_markup(prompt.describe(input_state)))
-    local markup
-    if input_state.tokens ~= nil then
-      local short_string = string_of_tokens(input_state.tokens, input_state.limit, input_state.params)
-      markup = string.format(
-        '<tt><span fgcolor="#808080">[%d]</span> %s</tt>',
-        self.index, short_string)
-    else
-      markup = string.format(
-        '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
-        self.index, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
-    end
-    if self.markup == nil then
-      self.short_label:set_markup(string.format('<span bgcolor="#FFFFAA">%s</span>', markup))
-    elseif markup ~= self.markup then
-      self.short_label:set_markup(string.format('<span bgcolor="#FFBBBB">%s</span>', markup))
-    else
-      self.short_label:set_markup(markup)
-    end
-    self.markup = markup
-  end
 end
 
 -- START TREE
@@ -534,8 +477,8 @@ end
 
 function Tree:refresh(k, o)
   local old_text = self.text
-
-  local text, pixbuf, children_o, child_get_data = self:get_data(k, o)
+print('refresh', k, v, self)
+  local text, pixbuf, children_o, keys, child_get_data = self:get_data(k, o)
   self.text = text
   self.pixbuf = pixbuf
 
@@ -547,18 +490,17 @@ function Tree:refresh(k, o)
       child_changed = true
     end
   end
-  for k,v_o in pairs(children_o) do
+  for _,k in ipairs(keys) do
+    local v_o = children_o[k]
     if self.children[k] == nil then
-      local get_data = child_get_data(k, v_o)
-      local iter = self.tree_store:append(self.iter, { nil, nil, nil })
-      local tree = Tree.new(self.id .. ':' .. k, self.tree_store, iter, get_data)
-      self.children[k] = tree
-      tree:refresh(k, v_o)
-      --    self:add_child(k, v_o, child_get_data(k, v_o))
+      self.children[k] = Tree.new(
+        self.id .. ':' .. k,
+        self.tree_store,
+        self.tree_store:append(self.iter, { nil, nil, nil }),
+        child_get_data(k, v_o))
       child_changed = true
-    else
-      child_changed = self.children[k]:refresh(k, v_o) or child_changed
     end
+    child_changed = self.children[k]:refresh(k, v_o) or child_changed
   end
 
   if self.iter ~= nil then
@@ -574,9 +516,31 @@ function input_state_root_get_data(self, k, o)
   for i = 0,size do
     children[i] = i
   end
-  -- 1..size
-  -- list
-  return nil, nil, children, function (_, _) return input_state_get_data end
+  return nil, nil, children, sorted_keys(children), function (_, _) return input_state_get_data end
+end
+
+function comp_keys(key1, key2)
+  local type1, type2 = type(key1), type(key2)
+  if type1 ~= type2 then
+    if type1 == 'number' and type2 == 'string' then
+      return false
+    elseif type1 == 'string' and type2 == 'number' then
+      return true
+    else
+      assert(false, ('type1: %s type2: %s'):format(type1, type2))
+    end
+  else
+    return key1 < key2
+  end
+end
+
+function sorted_keys(t)
+  local keys = {}
+  for k,_ in pairs(t) do
+    keys[#keys+1] = k
+  end
+  table.sort(keys, comp_keys)
+  return keys
 end
 
 function input_state_get_data(self, k, o)
@@ -596,71 +560,50 @@ function input_state_get_data(self, k, o)
         '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
         o, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
     end
-    return markup, nil, input_state, function (_, _) return default_get_data end
+    return markup, nil, input_state, sorted_keys(input_state), function (_, _) return default_get_data end
   end
 end
 
 function default_get_data(self, k, o)
   local function scalar(s)
-    return k .. ' = ' .. type(s) .. ': ' .. escape_markup(tostring(s)), nil, {}, nil
+    return k .. ' = ' .. type(s) .. ': ' .. escape_markup(tostring(s)), nil, {}, {}, nil
   end
   local t = type(o)
   if t == 'string' then
     return scalar('"' .. o .. '"')
   elseif t == 'table' then
-    return k, nil, o, function (_, _) return default_get_data end
+    return k, nil, o, sorted_keys(o), function (_, _) return default_get_data end
   else
     return scalar(o)
   end
 end
 
 -- END TREE
-
-InputState = {}
-InputState.__index = InputState
-
-function InputState.__call(input_ptr, tree_iter)
-   local o = {}
-   setmetatable(o, InputState)
-   o.tree_iter = tree_iter
-   o.input_ptr = input_ptr
-   o.markup = markup
-   return o
+function nest_stack_get_data(self, k, o)
+  local children = {}
+  local nest = tex.getnest(self.index)
+  --local list = nest.head
+  return '#' .. k, nil, nest, sorted_keys(children), function (_, _) return default_get_data end
 end
 
-function InputState:refresh()
+function next_stack_root_get_data(self, k, o)
+  local size = tex.getnestptr()
+  local children = {}
+  for i = 1,size do
+    children[i] = i
+  end
+  return 'Nest Stack', nil, children, sorted_keys(children), function (_, _) return nest_stack_get_data end
+end
+
+-- TODO: sort function instead of list of child orders
+function node_list_root_get_data(self, k, o)
+  local children = { nest_stack = next_stack_root_get_data }
+  return nil, nil, children, { 'nest_stack' }, function (_, v) return v end
+end
+
   -- ui.input_tree_store:set(i, {...})
   -- ui.input_tree_store:get_value(self, 0).value
   -- ui.input_tree_store:set_value(self, 0, GObject.Value(GObject.Type.STRING, "abc"))
-  local size = token.inputstacksize()
-  if self.input_ptr > size then
-    ui.input_tree_store:set(self, { 'id', 'ERROR: OUT OF SCOPE', nil })
-  else
-    local input_state = token.getinputstack(self.input_ptr)
-    --self.long_label:set_markup(escape_markup(prompt.describe(input_state)))
-    local markup
-    if input_state.tokens ~= nil then
-      local short_string = string_of_tokens(input_state.tokens, input_state.limit, input_state.params)
-      markup = string.format(
-        '<tt><span fgcolor="#808080">[%d]</span> %s</tt>',
-        self.input_ptr, short_string)
-    else
-      markup = string.format(
-        '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
-        self.input_ptr, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
-    end
-    local colored_markup
-    if self.markup == nil then
-      colored_markup = string.format('<span bgcolor="#FFFFAA">%s</span>', markup)
-    elseif markup ~= self.markup then
-      colored_markup = string.format('<span bgcolor="#FFBBBB">%s</span>', markup)
-    else
-      colored_markup = markup
-    end
-    ui.input_tree_store:set_value(self, 0, GObject.Value(GObject.Type.STRING, colored_markup))
-    self.markup = markup
-  end
-end
 
 -- TODO: "step +10" button
 -- TODO: "step k" button
@@ -672,48 +615,10 @@ end
 -- TODO: show "last command"
 -- TODO: disable expand button
 -- TODO: check box for whether to show parameters inline
--- TODO: STEP-Expand* button
-
-input_rows = {}
---input_tree = {}
-
-do
-  local y = InputRow:new(0)
-  input_rows[0] = y
-  ui.input_list_box:insert(y.widget, -1)
-
-  --local z = ui.input_tree_store:append(nil, { '0', 'UNINITIALIZED', nil })
-  --input_tree[0] = z
-end
-function refresh_input()
-  local stack_size = token.inputstacksize()
-  for i=stack_size+1,#input_rows do
-    local y = input_rows[i]
-    ui.input_list_box:remove(y.widget)
-    input_rows[i] = nil
-  end
-  for i=#input_rows+1,stack_size do
-    local y = InputRow:new(i)
-    input_rows[i] = y
-    ui.input_list_box:insert(y.widget, -1)
-  end
-  expandable = nil
-  for i=stack_size,0,-1 do
-    input_rows[i]:refresh()
-  end
-  ui.prime_button.sensitive = expandable == nil
-  ui.expand_button.sensitive = expandable ~= 0 -- TODO: == 1
-  ui.expand_many_button.sensitive = expandable ~= 0
-end
-
--- i1 = ui.treestore:append(nil, { "id", "<b>text</b>", nil})
--- i2 = ui.treestore:append(i1, { "id2", "test2", nil})
+-- TODO: STEP-Expand* 
+-- TODO: rename to luatexinspector
 
 print('-------- Input Stack --------')
-
--- TODO: attach InputRow to InputRowWidget as userdata?
-
---Gtk.main()
 
 print('++++++++ Nest Stack ++++++++')
 NestRowWidget = LuaTeXRepl:class('NestRow', Gtk.ListBoxRow)
@@ -849,17 +754,41 @@ function refresh_nest()
 end
 print('-------- Nest Stack --------')
 
-tree = Tree.new('uninit', ui.input_tree_store, nil, input_state_root_get_data)
+input_tree = Tree.new('input_stack', ui.input_tree_store, nil, input_state_root_get_data)
+node_tree = Tree.new('node_list', ui.node_tree_store, nil, node_list_root_get_data)
 
 function refresh()
   refresh_nest()
-  refresh_input()
-  tree:refresh('root', nil)
+  node_tree:refresh('root', nil)
+  input_tree:refresh('root', nil)
+
+  -- TODO: proper expand test
+  local stack_size = token.inputstacksize()
+  expandable = nil
+  for i=stack_size,0,-1 do
+    local input_state = token.getinputstack(i)
+    local tokens = input_state.tokens
+    if tokens ~= nil then
+      local start = tokens.loc or 1
+      for j=start,#tokens do
+        local tok = tokens[j]
+        if tok.cmdname ~= 'car_ret' then
+          expandable = expandable or (tok.expandable and 1 or 0)
+        end
+      end
+    end
+  end
+  ui.prime_button.sensitive = expandable == nil
+  ui.expand_button.sensitive = expandable ~= 0 -- TODO: == 1
+  ui.expand_many_button.sensitive = expandable ~= 0
 end
 refresh()
 
---prompt.enter()
-run()
+if false then
+  prompt.enter()
+else
+  run()
+end
 
 print('-------- LuaTeXRepl --------')
 

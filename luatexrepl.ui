@@ -7,10 +7,10 @@
     <property name="can_focus">False</property>
     <property name="title" translatable="yes">About...</property>
     <property name="type_hint">dialog</property>
-    <property name="program_name">LuaTeX REPL</property>
+    <property name="program_name">LuaTeX Inspector</property>
     <property name="version">Version 0.1</property>
     <property name="copyright" translatable="yes">Michael D. Adams © 2020</property>
-    <property name="website">https://github.com/adamsmd/luatexrepl</property>
+    <property name="website">https://github.com/adamsmd/luatexinspector</property>
     <property name="authors">asdf</property>
     <property name="documenters">asdf</property>
     <property name="translator_credits" translatable="yes">asdf</property>
@@ -59,6 +59,16 @@
       <column type="GdkPixbuf"/>
     </columns>
   </object>
+  <object class="GtkTreeStore" id="node_tree_store">
+    <columns>
+      <!-- column-name id -->
+      <column type="gchararray"/>
+      <!-- column-name text -->
+      <column type="gchararray"/>
+      <!-- column-name pixbuf -->
+      <column type="GdkPixbuf"/>
+    </columns>
+  </object>
   <object class="GtkTextTagTable" id="output_tag_table">
     <child type="tag">
       <object class="GtkTextTag" id="error">
@@ -93,7 +103,7 @@
   </object>
   <object class="GtkApplicationWindow" id="window">
     <property name="can_focus">False</property>
-    <property name="title" translatable="yes">LuaTeX REPL</property>
+    <property name="title" translatable="yes">LuaTeX Inspector</property>
     <property name="default_width">1200</property>
     <property name="default_height">900</property>
     <property name="icon_name">text-x-generic-template</property>
@@ -238,6 +248,20 @@
                 <property name="can_focus">False</property>
                 <property name="label" translatable="yes">_View</property>
                 <property name="use_underline">True</property>
+                <child type="submenu">
+                  <object class="GtkMenu">
+                    <property name="visible">True</property>
+                    <property name="can_focus">False</property>
+                    <child>
+                      <object class="GtkCheckMenuItem" id="parameters_menu_item">
+                        <property name="visible">True</property>
+                        <property name="can_focus">False</property>
+                        <property name="label" translatable="yes">Parameter Positions</property>
+                        <property name="use_underline">True</property>
+                      </object>
+                    </child>
+                  </object>
+                </child>
               </object>
             </child>
             <child>
@@ -324,7 +348,7 @@
               <object class="GtkToolButton" id="prime_button">
                 <property name="visible">True</property>
                 <property name="can_focus">False</property>
-                <property name="label" translatable="yes">_Prime</property>
+                <property name="label" translatable="yes">_Tokenize</property>
                 <property name="use_underline">True</property>
               </object>
               <packing>
@@ -421,66 +445,52 @@
                       </packing>
                     </child>
                     <child>
-                      <object class="GtkBox">
+                      <object class="GtkScrolledWindow">
                         <property name="visible">True</property>
-                        <property name="can_focus">False</property>
-                        <property name="orientation">vertical</property>
+                        <property name="can_focus">True</property>
+                        <property name="shadow_type">in</property>
                         <child>
-                          <object class="GtkLabel">
+                          <object class="GtkViewport">
                             <property name="visible">True</property>
                             <property name="can_focus">False</property>
-                            <property name="label" translatable="yes">Tree</property>
-                            <property name="selectable">True</property>
-                            <property name="xalign">0</property>
-                          </object>
-                          <packing>
-                            <property name="expand">False</property>
-                            <property name="fill">True</property>
-                            <property name="position">0</property>
-                          </packing>
-                        </child>
-                        <child>
-                          <object class="GtkTreeView">
-                            <property name="visible">True</property>
-                            <property name="can_focus">True</property>
-                            <property name="model">input_tree_store</property>
-                            <child internal-child="selection">
-                              <object class="GtkTreeSelection"/>
-                            </child>
+                            <property name="shadow_type">none</property>
                             <child>
-                              <object class="GtkTreeViewColumn" id="text_column">
-                                <property name="resizable">True</property>
-                                <property name="title" translatable="yes">String</property>
-                                <property name="clickable">True</property>
-                                <property name="reorderable">True</property>
-                                <child>
-                                  <object class="GtkCellRendererText" id="text_cell_renderer"/>
-                                  <attributes>
-                                    <attribute name="markup">1</attribute>
-                                  </attributes>
+                              <object class="GtkTreeView">
+                                <property name="visible">True</property>
+                                <property name="can_focus">True</property>
+                                <property name="model">node_tree_store</property>
+                                <child internal-child="selection">
+                                  <object class="GtkTreeSelection"/>
                                 </child>
-                              </object>
-                            </child>
-                            <child>
-                              <object class="GtkTreeViewColumn" id="pixbuf_column">
-                                <property name="resizable">True</property>
-                                <property name="title" translatable="yes">Image</property>
-                                <property name="clickable">True</property>
-                                <property name="reorderable">True</property>
                                 <child>
-                                  <object class="GtkCellRendererPixbuf" id="pixbuf_cell_renderer"/>
-                                  <attributes>
-                                    <attribute name="pixbuf">2</attribute>
-                                  </attributes>
+                                  <object class="GtkTreeViewColumn">
+                                    <property name="resizable">True</property>
+                                    <property name="title" translatable="yes">Node List</property>
+                                    <property name="reorderable">True</property>
+                                    <child>
+                                      <object class="GtkCellRendererText"/>
+                                      <attributes>
+                                        <attribute name="markup">1</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
+                                </child>
+                                <child>
+                                  <object class="GtkTreeViewColumn">
+                                    <property name="resizable">True</property>
+                                    <property name="title" translatable="yes">Image</property>
+                                    <property name="reorderable">True</property>
+                                    <child>
+                                      <object class="GtkCellRendererPixbuf"/>
+                                      <attributes>
+                                        <attribute name="pixbuf">2</attribute>
+                                      </attributes>
+                                    </child>
+                                  </object>
                                 </child>
                               </object>
                             </child>
                           </object>
-                          <packing>
-                            <property name="expand">False</property>
-                            <property name="fill">True</property>
-                            <property name="position">1</property>
-                          </packing>
                         </child>
                       </object>
                       <packing>
@@ -495,53 +505,60 @@
                   </packing>
                 </child>
                 <child>
-                  <object class="GtkBox">
+                  <object class="GtkScrolledWindow">
                     <property name="visible">True</property>
-                    <property name="can_focus">False</property>
-                    <property name="orientation">vertical</property>
+                    <property name="can_focus">True</property>
+                    <property name="shadow_type">in</property>
                     <child>
-                      <object class="GtkLabel">
+                      <object class="GtkViewport">
                         <property name="visible">True</property>
                         <property name="can_focus">False</property>
-                        <property name="label" translatable="yes">Input Stack</property>
-                        <property name="selectable">True</property>
-                        <property name="xalign">0</property>
-                      </object>
-                      <packing>
-                        <property name="expand">False</property>
-                        <property name="fill">True</property>
-                        <property name="position">0</property>
-                      </packing>
-                    </child>
-                    <child>
-                      <object class="GtkScrolledWindow">
-                        <property name="visible">True</property>
-                        <property name="can_focus">True</property>
-                        <property name="shadow_type">in</property>
+                        <property name="shadow_type">none</property>
                         <child>
-                          <object class="GtkViewport">
+                          <object class="GtkTreeView">
                             <property name="visible">True</property>
-                            <property name="can_focus">False</property>
-                            <property name="shadow_type">none</property>
+                            <property name="can_focus">True</property>
+                            <property name="model">input_tree_store</property>
+                            <property name="search_column">0</property>
+                            <property name="enable_tree_lines">True</property>
+                            <property name="activate_on_single_click">True</property>
+                            <child internal-child="selection">
+                              <object class="GtkTreeSelection"/>
+                            </child>
                             <child>
-                              <object class="GtkListBox" id="input_list_box">
-                                <property name="visible">True</property>
-                                <property name="can_focus">False</property>
+                              <object class="GtkTreeViewColumn">
+                                <property name="resizable">True</property>
+                                <property name="title" translatable="yes">Input Stack</property>
+                                <property name="reorderable">True</property>
+                                <child>
+                                  <object class="GtkCellRendererText"/>
+                                  <attributes>
+                                    <attribute name="markup">1</attribute>
+                                  </attributes>
+                                </child>
+                              </object>
+                            </child>
+                            <child>
+                              <object class="GtkTreeViewColumn">
+                                <property name="resizable">True</property>
+                                <property name="title" translatable="yes">Image</property>
+                                <property name="reorderable">True</property>
+                                <child>
+                                  <object class="GtkCellRendererPixbuf"/>
+                                  <attributes>
+                                    <attribute name="pixbuf">2</attribute>
+                                  </attributes>
+                                </child>
                               </object>
                             </child>
                           </object>
                         </child>
                       </object>
-                      <packing>
-                        <property name="expand">True</property>
-                        <property name="fill">True</property>
-                        <property name="position">1</property>
-                      </packing>
                     </child>
                   </object>
                   <packing>
                     <property name="resize">True</property>
-                    <property name="shrink">False</property>
+                    <property name="shrink">True</property>
                   </packing>
                 </child>
               </object>
