@@ -1,4 +1,4 @@
-print('++++++++ LuaTeXRepl UI ++++++++')
+print('++++++++ LuaTeXInspector UI ++++++++')
 
 -- https://github.com/nymphium/lua-graphviz
 -- https://github.com/hleuwer/luagraph
@@ -26,7 +26,7 @@ GtkSource.View {}
 
 local builder = Gtk.Builder()
 -- TODO: assert/error checking
-builder:add_from_file('luatexrepl.ui')
+builder:add_from_file('luatexinspector.ui')
 
 ui = builder.objects
 
@@ -244,6 +244,6 @@ end
 -- Show window and start the loop.
 window:show_all()
 
-print('-------- LuaTeXRepl GUI --------')
+print('-------- LuaTeXInspector GUI --------')
 
 return ui

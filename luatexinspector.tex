@@ -20,18 +20,18 @@ ABCD
 \def\U#1{#1#1}
 \def\A#1{\B{b#1b}}
 \def\B#1{c#1\aaa x d}
-%\directlua{require 'luatexrepl.lua'}\A\aaa
+%\directlua{require 'luatexinspector.lua'}\A\aaa
 % Omega: \U\U
-\directlua{require 'luatexrepl.lua'}A\B{}x d
-%\directlua{require 'luatexrepl.lua'}A\xxx \zzz XYZ\\a\zzz b\www cqwe\char`\\rty\par
+\directlua{require 'luatexinspector.lua'}A\B{}x d
+%\directlua{require 'luatexinspector.lua'}A\xxx \zzz XYZ\\a\zzz b\www cqwe\char`\\rty\par
 x
-%\directlua{require 'luatexrepl.lua'}
+%\directlua{require 'luatexinspector.lua'}
 %\xxx{A}{B}
 % foo bar baz
 % \par
 % asdfl asdfl asdf asdf asdf asdf asdf
 % asdfl asdfl asdf asdf asdf asdf asdf%
-%\directlua{require 'luatexrepl.lua'}%
+%\directlua{require 'luatexinspector.lua'}%
 %\x
 
 a

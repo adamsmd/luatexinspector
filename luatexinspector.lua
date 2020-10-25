@@ -3,11 +3,11 @@
 -- sudo apt install libgirepository1.0-dev
 -- luarocks install lgi
 --
--- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape --lua=luatexrepl-startup.lua luatexrepl.tex
--- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape luatexrepl.tex
+-- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape --lua=luatexinspector-startup.lua luatexinspector.tex
+-- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" luatex --shell-escape luatexinspector.tex
 --
--- GTK_DEBUG=interactive PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" lualatex --shell-escape luatexrepl.tex
--- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" lualatex --shell-escape luatexrepl.tex
+-- GTK_DEBUG=interactive PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" lualatex --shell-escape luatexinspector.tex
+-- PATH=~/l/tex/luatex/texlive.svn/tags/texlive-2020.0/Master/bin/x86_64-linux:"$PATH" lualatex --shell-escape luatexinspector.tex
 --
 -- make && yes | cp luatex luahbtex ../../../../../Master/bin/x86_64-linux/
 --
@@ -61,9 +61,9 @@
 -- extern scaled best_size;        /* its |page_goal| */
 
 
-print('\n++++++++ LuaTeXRepl ++++++++')
+print('\n++++++++ LuaTeXInspector ++++++++')
 
-print('++++++++ LuaTeXRepl Searchers ++++++++')
+print('++++++++ LuaTeXInspector Searchers ++++++++')
 function myloader(name)
   local filename = package.searchpath(name, package.path)
 
@@ -106,23 +106,23 @@ package.searchers[#package.searchers+1] = myloader;
 package.searchers[#package.searchers+1] = mycloader;
 print('Searchers after:', #package.searchers)
 
-print('-------- LuaTeXRepl Searchers --------')
+print('-------- LuaTeXInspector Searchers --------')
 
-print('++++++++ LuaTeXRepl luaprompt ++++++++')
+print('++++++++ LuaTeXInspector luaprompt ++++++++')
 prompt = require 'prompt'
 
-prompt.name = 'luatexrepl'
+prompt.name = 'luatexinspector'
 
 local dirsep = string.match (package.config, "[^\n]+")
 local dirname = os.getenv('HOME') -- TODO: os.env?
-for _k,v in pairs({'local', 'share', 'luatexrepl'}) do
+for _k,v in pairs({'local', 'share', 'luatexinspector'}) do
   dirname = dirname .. dirsep .. v
   lfs.mkdir(dirname)
 end
 prompt.history = dirname .. '/history'
-print('-------- LuaTeXRepl luaprompt --------')
+print('-------- LuaTeXInspector luaprompt --------')
 
-print('++++++++ LuaTeXRepl Functions ++++++++')
+print('++++++++ LuaTeXInspector Functions ++++++++')
 local luatex_version = status.list().luatex_version
 
 --------------------------------
@@ -280,7 +280,7 @@ end
 --   token.scan_token() -- Triggers the expansion and reads back the \relax token
 --   -- TODO: fix undefined_cs?
 -- end
-print('-------- LuaTeXRepl Functions --------')
+print('-------- LuaTeXInspector Functions --------')
 
 -- https://github.com/Josef-Friedrich/nodetree/blob/master/nodetree.lua
 nodetree = require 'nodetree'
@@ -289,14 +289,14 @@ nodetree = require 'nodetree'
 viznodelist = require 'viznodelist'
 -- viznodelist.nodelist_visualize(box, filename, { showdisc = true })
 
-ui = require 'luatexrepl-ui'
+ui = require 'luatexinspector-ui'
 
-file = io.open('luatexrepl-input_row.ui', "rb") -- r read mode and b binary mode
+file = io.open('luatexinspector-input_row.ui', "rb") -- r read mode and b binary mode
 assert(file)
 input_row_xml = file:read "*all" -- *a or *all reads the whole file
 file:close()
 
-file = io.open('luatexrepl-nest_row.ui', "rb") -- r read mode and b binary mode
+file = io.open('luatexinspector-nest_row.ui', "rb") -- r read mode and b binary mode
 assert(file)
 nest_row_xml = file:read "*all" -- *a or *all reads the whole file
 file:close()
@@ -331,7 +331,7 @@ function ui.refresh_button:on_clicked()
   refresh()
 end
 
-LuaTeXRepl = lgi.package('LuaTeXRepl')
+LuaTeXInspector = lgi.package('LuaTeXInspector')
 
 -- Ctrl-C = Gtk.main_quit()
 print('++++++++ Input Stack ++++++++')
@@ -621,7 +621,7 @@ end
 print('-------- Input Stack --------')
 
 print('++++++++ Nest Stack ++++++++')
-NestRowWidget = LuaTeXRepl:class('NestRow', Gtk.ListBoxRow)
+NestRowWidget = LuaTeXInspector:class('NestRow', Gtk.ListBoxRow)
 do
   local IR = NestRowWidget()
   NestRowClass = IR._class
@@ -790,7 +790,7 @@ else
   run()
 end
 
-print('-------- LuaTeXRepl --------')
+print('-------- LuaTeXInspector --------')
 
 -- need to set console file mode?
 -- need to set stdin mode?
