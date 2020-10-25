@@ -446,9 +446,10 @@ end
 Tree = {}
 Tree.__index = Tree
 
-function Tree.new(id, tree_store, iter, get_data) -- TODO: __call
+function Tree.new(id, tree_view, tree_store, iter, get_data) -- TODO: __call
   local o = {
     id = id,
+    tree_view = tree_view,
     tree_store = tree_store,
     iter = iter,
     get_data = get_data,
@@ -477,11 +478,11 @@ end
 
 function Tree:refresh(k, o)
   local old_text = self.text
-print('refresh', k, v, self)
   local text, pixbuf, children_o, keys, child_get_data = self:get_data(k, o)
   self.text = text
   self.pixbuf = pixbuf
 
+  local had_children = #self.children ~= 0
   local child_changed = false
   for k,v in pairs(self.children) do
     if children_o[k] == nil then
@@ -495,9 +496,14 @@ print('refresh', k, v, self)
     if self.children[k] == nil then
       self.children[k] = Tree.new(
         self.id .. ':' .. k,
+        self.tree_view,
         self.tree_store,
         self.tree_store:append(self.iter, { nil, nil, nil }),
         child_get_data(k, v_o))
+      if not had_children and self.iter ~= nil then
+        local path = self.tree_store:get_path(self.iter)
+        self.tree_view:expand_row(path, false)
+      end
       child_changed = true
     end
     child_changed = self.children[k]:refresh(k, v_o) or child_changed
@@ -579,9 +585,76 @@ function default_get_data(self, k, o)
 end
 
 -- END TREE
-function nest_stack_get_data(self, k, o)
-  local children = {}
-  local nest = tex.getnest(self.index)
+
+-- #define prev_depth_par                     cur_list.prev_depth_field
+-- #define prev_graf_par                      cur_list.pg_field
+-- #define tail_par                           cur_list.tail_field
+-- #define head_par                           cur_list.head_field
+-- #define mode_par                           cur_list.mode_field
+-- #define dirs_par                           cur_list.dirs_field
+-- #define space_factor_par                   cur_list.space_factor_field
+-- #define incompleat_noad_par                cur_list.incompleat_noad_field
+-- #define mode_line_par                      cur_list.ml_field
+
+-- #define aux_par                            cur_list.eTeX_aux_field
+-- #define delim_par                          aux_par
+
+
+-- mode
+-- head
+-- tail
+-- prevgraf pg_field
+-- modeline ml_field
+
+-- 3 prevdepth
+
+-- delimptr eTeX_aux_field
+-- spacefactor
+-- noad
+-- dirs
+-- mathdir
+-- mathstyle
+
+function nest_stack_get_data(self, k, nest_index)
+  local nest = tex.getnest(nest_index)
+
+  local children = {
+    mode = modenames[nest.mode], -- integer
+    head = nest.head, -- node
+    tail = nest.tail, -- node
+    delimptr = nest.delimptr, -- node
+    prevgraf = nest.prevgraf, -- integer
+    modeline = nest.modeline, -- integer
+    prevdepth = nest.prevdepth, -- integer
+    spacefactor = nest.spacefactor, -- integer
+    noad = nest.noad, -- node
+    dirs = nest.dirs, -- node
+    mathdir = nest.mathdir, -- boolean
+    mathstyle = nest.mathstyle, -- integer
+  }
+
+
+  -- local children = {
+  --   mode = nest.mode, -- negative indicate inner and inline variants
+  --   modeline = nest.modeline, -- source input line where this mode was entered in, negative inside the output routine
+  --   prevgraf = nest.prevgraf, --  number of lines in the previous paragraph
+  -- }
+  -- local modename = tex.getmodevalues()[math.abs(nest.mode)]
+  -- if modename == "vertical" then
+  --   children.prevdepth = nest.prevdepth -- depth of the previous paragraph
+  --   -- <=-1000 (if exempt from baseline calc)
+  -- elseif modename == 'horizontal' then
+  --   children.spacefactor = nest.prevdepth -- (num)
+  --   children.dirs = nest.dirs -- (node) temp storage by line break algorithm
+  -- elseif modename == 'math' then
+  --   children.noad = nest.prevdepth -- used for temporary storage of a pending fraction numerator, for \over etc
+  --   children.delimptr = nest.delimptr -- used for temporary storage of the previous math delimiter, for \middle
+  --   children.mathdir = nest.mathdir -- true when during math processing the \mathdir is not the same as the surrounding \textdir
+  --   children.mathstyle = nest.mathstyle -- num
+  -- else
+  --   error() -- TODO: raise error
+  -- end
+
   --local list = nest.head
   return '#' .. k, nil, nest, sorted_keys(children), function (_, _) return default_get_data end
 end
@@ -589,7 +662,7 @@ end
 function next_stack_root_get_data(self, k, o)
   local size = tex.getnestptr()
   local children = {}
-  for i = 1,size do
+  for i = 0,size do
     children[i] = i
   end
   return 'Nest Stack', nil, children, sorted_keys(children), function (_, _) return nest_stack_get_data end
@@ -754,8 +827,8 @@ function refresh_nest()
 end
 print('-------- Nest Stack --------')
 
-input_tree = Tree.new('input_stack', ui.input_tree_store, nil, input_state_root_get_data)
-node_tree = Tree.new('node_list', ui.node_tree_store, nil, node_list_root_get_data)
+input_tree = Tree.new('input_stack', ui.input_tree_view, ui.input_tree_store, nil, input_state_root_get_data)
+node_tree = Tree.new('node_list', ui.node_tree_view, ui.node_tree_store, nil, node_list_root_get_data)
 
 function refresh()
   refresh_nest()
