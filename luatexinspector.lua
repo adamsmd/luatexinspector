@@ -446,12 +446,13 @@ end
 Tree = {}
 Tree.__index = Tree
 
-function Tree.new(id, tree_view, tree_store, iter, auto_expand, get_data) -- TODO: __call
+function Tree.new(id, tree_view, tree_store, iter, order, auto_expand, get_data) -- TODO: __call
   local o = {
     id = id,
     tree_view = tree_view,
     tree_store = tree_store,
     iter = iter,
+    order = order,
     auto_expand = auto_expand,
     get_data = get_data,
     children = {},
@@ -462,12 +463,12 @@ function Tree.new(id, tree_view, tree_store, iter, auto_expand, get_data) -- TOD
   return o
 end
 
-function highlight_change(old, new, child_changed)
+function highlight_change(old, new, children_changed)
   if old == nil then
     return string.format('<span bgcolor="#BBFFBB">%s</span>', new)
   elseif old ~= new then
     return string.format('<span bgcolor="#FFBBBB">%s</span>', new)
-  elseif child_changed then
+  elseif children_changed then
     return string.format('<span bgcolor="#FFFFAA">%s</span>', new)
   else
     return new
@@ -475,57 +476,69 @@ function highlight_change(old, new, child_changed)
 end
 
 function Tree:refresh(k, o)
+  local had_children = #self.children ~= 0
+  local children_changed = false
   local old_text = self.text
-  local text, pixbuf, children_o, keys = self:get_data(k, o)
+
+  local text, pixbuf, children = self:get_data(k, o)
   self.text = text
   self.pixbuf = pixbuf
+
+  -- Determine which children should still exists
   local child_keys = {}
-  for _,k in ipairs(keys) do
-    child_keys[k.key] = true
+  for _,child in ipairs(children) do
+    child_keys[child.key] = true
   end
 
-  local had_children = #self.children ~= 0
-  local child_changed = false
+  -- Remove those children that shouldn't exist
   for k,v in pairs(self.children) do
     if child_keys[k] == nil then
       self.tree_store:remove(self.children[k].iter)
       self.children[k] = nil
-      child_changed = true
+      children_changed = true
     end
   end
-  for _,k in ipairs(keys) do
-    local v_o = children_o[k.key]
-    if self.children[k.key] == nil then
-      self.children[k.key] = Tree.new(
-        self.id .. ':' .. k.key,
+
+  -- Check all children that should exist
+  for i = 1,#children do
+    local child = children[i]
+    local k = child.key
+    local v = child.value
+    -- Add missing children
+    if self.children[k] == nil then
+      self.children[k] = Tree.new(
+        self.id .. ':' .. k,
         self.tree_view,
         self.tree_store,
-        self.tree_store:append(self.iter, { nil, nil, nil }),
-        k.auto_expand,
-        k.get_data)
+        self.tree_store:append(self.iter, { nil, nil, nil, nil }),
+        i,
+        child.auto_expand,
+        child.get_data)
+      -- Expand row if children are new and auto_expand is true
       if not had_children and self.auto_expand and self.iter ~= nil then
-        local path = self.tree_store:get_path(self.iter)
-        self.tree_view:expand_row(path, false)
+        self.tree_view:expand_row(self.tree_store:get_path(self.iter), false)
       end
-      child_changed = true
+      children_changed = true
     end
-    child_changed = self.children[k.key]:refresh(k.key, v_o) or child_changed
+    -- Refresh children
+    children_changed = self.children[k]:refresh(k, v) or children_changed
+    --child[new] = old
+    indices = self.tree_store:get_path(self.children[k].iter):get_indices()
+    index = indices[#indices]
   end
+  --Gtk.TreeStore.reoder(self.tree_store:reorder(self.iter, order)
 
+  -- Update own tree node
   if self.iter ~= nil then
-    self.tree_store:set(self.iter, { self.id, highlight_change(old_text, text, child_changed), pixbuf })
+    self.tree_store:set(
+      self.iter, { self.id, self.order, highlight_change(old_text, self.order .. ':' .. text, children_changed), pixbuf })
   end
 
-  return child_changed or old_text ~= text
+  return children_changed or old_text ~= text
 end
 
 function input_state_root_get_data(self, k, o)
-  local size = token.inputstacksize()
-  local children = {}
-  for i = 0,size do
-    children[i] = i
-  end
-  return nil, nil, children, sorted_keys(children, false, input_state_get_data)
+  return nil, nil, ranged_children(0, token.inputstacksize(), false, input_state_get_data)
 end
 
 function comp_keys(o1, o2)
@@ -544,13 +557,21 @@ function comp_keys(o1, o2)
   end
 end
 
-function sorted_keys(t, auto_expand, get_data)
-  local keys = {}
-  for k,_ in pairs(t) do
-    keys[#keys+1] = { key = k, auto_expand = auto_expand, get_data = get_data }
+function ranged_children(start, stop, auto_expand, get_data)
+  local children = {}
+  for i = start,stop do
+    children[#children + 1] = { key = i, value = i, auto_expand = auto_expand, get_data = get_data }
   end
-  table.sort(keys, comp_keys)
-  return keys
+  return children
+end
+
+function sorted_children(t, auto_expand, get_data)
+  local children = {}
+  for k,v in pairs(t) do
+    children[#children + 1] = { key = k, value = v, auto_expand = auto_expand, get_data = get_data }
+  end
+  table.sort(children, comp_keys)
+  return children
 end
 
 function input_state_get_data(self, k, o)
@@ -570,19 +591,19 @@ function input_state_get_data(self, k, o)
         '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
         o, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
     end
-    return markup, nil, input_state, sorted_keys(input_state, true, default_get_data)
+    return markup, nil, sorted_children(input_state, true, default_get_data)
   end
 end
 
 function default_get_data(self, k, o)
   local function scalar(s)
-    return k .. '[' .. type(s) .. ']: ' .. escape_markup(tostring(s)), nil, {}, {}
+    return k .. '[' .. type(s) .. ']: ' .. escape_markup(tostring(s)), nil, {}
   end
   local t = type(o)
   if t == 'string' then
     return scalar('"' .. o .. '"')
   elseif t == 'table' then
-    return k, nil, o, sorted_keys(o, true, default_get_data)
+    return k, nil, sorted_children(o, true, default_get_data)
   else
     return scalar(o)
   end
@@ -631,13 +652,12 @@ function node_get_data(self, k, n)
   elseif node.subtypes(n.id) ~= nil then
     subtype = node.subtypes(n.id)[n.subtype]
   end
-  print(prompt.describe(node.fields(node_type, subtype)))
 
   return
     string.format(
       '<tt><span fgcolor="#808080">[%d]</span> %s %s %s</tt>',
       k, node_type, subtype, escape_markup(tostring(n))),
-    nil, {}, {}
+    nil, {}
 end
 
 function node_list_get_data(self, k, node)
@@ -651,47 +671,30 @@ function node_list_get_data(self, k, node)
   -- node_data[]
   -- print(prompt.describe(node.fields('whatsit', 'pdf_literal')))
   local children = {}
-  local info = {}
   local iter = node
   while iter ~= nil do
-    info[#children + 1] = { key = #children + 1, auto_expand = true, get_data = node_get_data }
-    children[#children + 1] = iter
+    children[#children + 1] = { key = #children + 1, value = iter, auto_expand = true, get_data = node_get_data }
     iter = iter.next
   end
-  return tostring(k), nil, children, info
+  return tostring(k), nil, children
 end
 
 function nest_stack_get_data(self, k, nest_index)
   local nest = tex.getnest(nest_index)
 
   local children = {
-    mode = modenames[nest.mode], -- integer
-    head = nest.head, -- node
-    tail = nest.tail, -- node
-    delimptr = nest.delimptr, -- node
-    prevgraf = nest.prevgraf, -- integer
-    modeline = nest.modeline, -- integer
-    prevdepth = nest.prevdepth, -- integer
-    spacefactor = nest.spacefactor, -- integer
-    noad = nest.noad, -- node
-    dirs = nest.dirs, -- node
-    mathdir = nest.mathdir, -- boolean
-    mathstyle = nest.mathstyle, -- integer
-  }
-
-  local info = {
-    { key = 'mode', auto_expand = true, get_data = default_get_data }, -- integer
-    { key = 'delimptr', auto_expand = true, get_data = default_get_data }, -- node
-    { key = 'prevgraf', auto_expand = true, get_data = default_get_data }, -- integer
-    { key = 'modeline', auto_expand = true, get_data = default_get_data }, -- integer
-    { key = 'prevdepth', auto_expand = true, get_data = default_get_data }, -- integer
-    { key = 'spacefactor', auto_expand = true, get_data = default_get_data }, -- integer
-    { key = 'noad', auto_expand = true, get_data = default_get_data }, -- node
-    { key = 'dirs', auto_expand = true, get_data = default_get_data }, -- node
-    { key = 'mathdir', auto_expand = true, get_data = default_get_data }, -- boolean
-    { key = 'mathstyle', auto_expand = true, get_data = default_get_data }, -- integer
-    { key = 'head', auto_expand = true, get_data = node_list_get_data }, -- node
-    --{ key = 'tail', auto_expand = true, get_data = default_get_data }, -- node
+    { key = 'mode', value = modenames[nest.mode], auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'delimptr', value = nest.delimptr, auto_expand = true, get_data = default_get_data }, -- node
+    { key = 'prevgraf', value = nest.prevgraf, auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'modeline', value = nest.modeline, auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'prevdepth', value = nest.prevdepth, auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'spacefactor', value = nest.spacefactor, auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'noad', value = nest.noad, auto_expand = true, get_data = default_get_data }, -- node
+    { key = 'dirs', value = nest.dirs, auto_expand = true, get_data = default_get_data }, -- node
+    { key = 'mathdir', value = nest.mathdir, auto_expand = true, get_data = default_get_data }, -- boolean
+    { key = 'mathstyle', value = nest.mathstyle, auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'head', value = nest.head, auto_expand = true, get_data = node_list_get_data }, -- node
+    --{ key = 'tail', value = nest.head, auto_expand = true, get_data = default_get_data }, -- node
   }
 
 
@@ -715,33 +718,20 @@ function nest_stack_get_data(self, k, nest_index)
   -- else
   --   error() -- TODO: raise error
   -- end
-  --local info = sorted_keys(children, true, default_get_data)
+  --local info = sorted_children(children, true, default_get_data)
 
   --local list = nest.head
-  return 'nest[' .. k .. ']', nil, children, info
+  return 'nest[' .. k .. ']', nil, children
 end
 
 function next_stack_root_get_data(self, k, o)
-  local size = tex.getnestptr()
-  local children = {}
-  for i = 0,size do
-    children[i] = i
-  end
-  return 'Nest Stack', nil, children, sorted_keys(children, true, nest_stack_get_data)
+  return 'Nest Stack', nil, ranged_children(0, tex.getnestptr(), true, nest_stack_get_data)
 end
-
--- TODO: combine children and info
--- function node_list_root_get_data(self, k, o)
---   local node_list = tex.getlist(k)
-
---   return '[' .. k .. ']', nil, children, info
--- end
 
 -- Special list heads
 
 function special_lists_get_data(self, k, o)
   local children = {}
-  local info = {}
   for k,v in pairs({
     'page_ins_head',
     'contrib_head',
@@ -756,25 +746,19 @@ function special_lists_get_data(self, k, o)
     'best_siz',
     'pre_adjust_head',
     'align_head',}) do
-    children[v] = tex.getlist(v)
-    info[#info + 1] = { key = v, auto_expand = true, get_data = node_list_get_data }
+    children[#children + 1] = { key = v, value = tex.getlist(v), auto_expand = true, get_data = node_list_get_data }
   end
 
-  return 'Special Lists', nil, children, info
+  return 'Special Lists', nil, children
 end
 
--- TODO: sort function instead of list of child orders
 function node_tree_root_get_data(self, k, o)
   local page_head = tex.getlist('page_head')
   local children = {
-    nest_stack = true,
-    page_head = page_head,
+    { key = 'special_lists', value = page_head, auto_expand = true, get_data = special_lists_get_data },
+    { key = 'nest_stack', value = nil, auto_expand = true, get_data = next_stack_root_get_data },
   }
-  local info = {
-    { key = 'special_lists', auto_expand = true, get_data = special_lists_get_data },
-    { key = 'nest_stack', auto_expand = true, get_data = next_stack_root_get_data },
-  }
-  return nil, nil, children, info
+  return nil, nil, children
 end
 
   -- ui.input_tree_store:set(i, {...})
@@ -792,7 +776,6 @@ end
 -- TODO: disable expand button
 -- TODO: check box for whether to show parameters inline
 -- TODO: STEP-Expand*
--- TODO: rename to luatexinspector
 
 print('-------- Input Stack --------')
 
@@ -930,8 +913,23 @@ function refresh_nest()
 end
 print('-------- Nest Stack --------')
 
-input_tree = Tree.new('input_stack', ui.input_tree_view, ui.input_tree_store, nil, true, input_state_root_get_data)
-node_tree = Tree.new('node_tree', ui.node_tree_view, ui.node_tree_store, nil, true, node_tree_root_get_data)
+ORDER_COLUMN = 1
+
+function order_sort_func(model, iter1, iter2)
+  local value1 = model:get_value(iter1, ORDER_COLUMN).value
+  local value2 = model:get_value(iter2, ORDER_COLUMN).value
+  if value1 < value2 then return -1
+  elseif value1 > value2 then return 1
+  else return 0 end
+end
+
+ui.input_tree_store:set_default_sort_func(order_sort_func)
+--ui.input_tree_store:set_sort_column_id(ORDER_COLUMN, Gtk.TreeSortable.DEFAULT_SORT_COLUMN_ID)
+--ui.input_tree_store:set_sort_column_id(ORDER_COLUMN, 4294967295)
+ui.input_tree_store:set_sort_column_id(Gtk.TreeSortable.DEFAULT_SORT_COLUMN_ID, Gtk.SortType.ASCENDING)
+
+input_tree = Tree.new('input_stack', ui.input_tree_view, ui.input_tree_store, nil, nil, true, input_state_root_get_data)
+node_tree = Tree.new('node_tree', ui.node_tree_view, ui.node_tree_store, nil, nil, true, node_tree_root_get_data)
 
 function refresh()
   refresh_nest()
@@ -960,7 +958,7 @@ function refresh()
 end
 refresh()
 
-if false then
+if true then
   prompt.enter()
 else
   run()
