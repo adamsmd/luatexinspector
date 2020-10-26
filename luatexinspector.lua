@@ -446,7 +446,7 @@ end
 Tree = {}
 Tree.__index = Tree
 
-function Tree.new(id, tree_view, tree_store, iter, order, auto_expand, get_data) -- TODO: __call
+function Tree.new(id, tree_view, tree_store, iter, get_data, order, auto_expand) -- TODO: __call
   local o = {
     id = id,
     tree_view = tree_view,
@@ -511,9 +511,9 @@ function Tree:refresh(k, o)
         self.tree_view,
         self.tree_store,
         self.tree_store:append(self.iter, { nil, nil, nil, nil }),
+        child.get_data,
         i,
-        child.auto_expand,
-        child.get_data)
+        child.auto_expand)
       -- Expand row if children are new and auto_expand is true
       if not had_children and self.auto_expand and self.iter ~= nil then
         self.tree_view:expand_row(self.tree_store:get_path(self.iter), false)
@@ -531,7 +531,7 @@ function Tree:refresh(k, o)
   -- Update own tree node
   if self.iter ~= nil then
     self.tree_store:set(
-      self.iter, { self.id, self.order, highlight_change(old_text, self.order .. ':' .. text, children_changed), pixbuf })
+      self.iter, { self.id, self.order, highlight_change(old_text, text, children_changed), pixbuf })
   end
 
   return children_changed or old_text ~= text
@@ -597,7 +597,7 @@ end
 
 function default_get_data(self, k, o)
   local function scalar(s)
-    return k .. '[' .. type(s) .. ']: ' .. escape_markup(tostring(s)), nil, {}
+    return '<tt>' .. k .. ': ' .. escape_markup(tostring(s)) .. ' <span fgcolor="#808080">(' .. type(s) .. ')</span></tt>', nil, {}
   end
   local t = type(o)
   if t == 'string' then
@@ -644,6 +644,7 @@ end
 
 node_types = node.types()
 whatsit_types = node.whatsits()
+
 function node_get_data(self, k, n)
   local node_type = node_types[n.id]
   local subtype = nil
@@ -652,12 +653,26 @@ function node_get_data(self, k, n)
   elseif node.subtypes(n.id) ~= nil then
     subtype = node.subtypes(n.id)[n.subtype]
   end
+  -- TODO: use node.values(field) do decode into a string
+
+  local children = {}
+  -- NOTE: this ignores [0] and [-1] which are .next and .prev
+  for i,k in ipairs(node.fields(node_type, subtype)) do
+    if k ~= 'id' and k ~= 'subtype' then
+      local v = n[k]
+      local get_data = default_get_data
+      if node.is_node(v) then
+        get_data = node_list_get_data
+      end
+      children[#children + 1] = { key = k, value = v, auto_expand = true, get_data = get_data }
+    end
+  end
 
   return
     string.format(
-      '<tt><span fgcolor="#808080">[%d]</span> %s %s %s</tt>',
-      k, node_type, subtype, escape_markup(tostring(n))),
-    nil, {}
+      '<tt><span fgcolor="#808080">[%d]</span> %s %s (id: %d)</tt>',
+      k, node_type, subtype, node.direct.todirect(n)),
+    nil, children
 end
 
 function node_list_get_data(self, k, node)
@@ -676,7 +691,11 @@ function node_list_get_data(self, k, node)
     children[#children + 1] = { key = #children + 1, value = iter, auto_expand = true, get_data = node_get_data }
     iter = iter.next
   end
-  return tostring(k), nil, children
+  local label = tostring(k)
+  if #children == 0 then
+    label = label .. ': <span fgcolor="#808080">&lt;empty&gt;</span>'
+  end
+  return '<tt>' .. label .. '</tt>', nil, children
 end
 
 function nest_stack_get_data(self, k, nest_index)
@@ -728,7 +747,20 @@ function next_stack_root_get_data(self, k, o)
   return 'Nest Stack', nil, ranged_children(0, tex.getnestptr(), true, nest_stack_get_data)
 end
 
--- Special list heads
+function box_get_data(self, k, box)
+  return node_list_get_data(self, string.format('box[%d]', k), box)
+end
+
+function boxes_root_get_data(self, k, o)
+  local boxes = {}
+  for i=0,65535 do
+    local box = tex.getbox(i)
+    if box ~= nil then
+      boxes[#boxes + 1] = { key = i, value = box, auto_expand = true, get_data = box_get_data }
+    end
+  end
+  return 'Boxes', nil, boxes
+end
 
 function special_lists_get_data(self, k, o)
   local children = {}
@@ -756,6 +788,7 @@ function node_tree_root_get_data(self, k, o)
   local page_head = tex.getlist('page_head')
   local children = {
     { key = 'special_lists', value = page_head, auto_expand = true, get_data = special_lists_get_data },
+    { key = 'boxes', value = nil, auto_expand = true, get_data = boxes_root_get_data },
     { key = 'nest_stack', value = nil, auto_expand = true, get_data = next_stack_root_get_data },
   }
   return nil, nil, children
@@ -924,12 +957,10 @@ function order_sort_func(model, iter1, iter2)
 end
 
 ui.input_tree_store:set_default_sort_func(order_sort_func)
---ui.input_tree_store:set_sort_column_id(ORDER_COLUMN, Gtk.TreeSortable.DEFAULT_SORT_COLUMN_ID)
---ui.input_tree_store:set_sort_column_id(ORDER_COLUMN, 4294967295)
 ui.input_tree_store:set_sort_column_id(Gtk.TreeSortable.DEFAULT_SORT_COLUMN_ID, Gtk.SortType.ASCENDING)
 
-input_tree = Tree.new('input_stack', ui.input_tree_view, ui.input_tree_store, nil, nil, true, input_state_root_get_data)
-node_tree = Tree.new('node_tree', ui.node_tree_view, ui.node_tree_store, nil, nil, true, node_tree_root_get_data)
+input_tree = Tree.new('input_stack', ui.input_tree_view, ui.input_tree_store, nil, input_state_root_get_data, 0, true)
+node_tree = Tree.new('node_tree', ui.node_tree_view, ui.node_tree_store, nil, node_tree_root_get_data, 0, true)
 
 function refresh()
   refresh_nest()
@@ -959,9 +990,9 @@ end
 refresh()
 
 if true then
-  prompt.enter()
-else
   run()
+else
+  prompt.enter()
 end
 
 print('-------- LuaTeXInspector --------')
