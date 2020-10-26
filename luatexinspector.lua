@@ -446,12 +446,13 @@ end
 Tree = {}
 Tree.__index = Tree
 
-function Tree.new(id, tree_view, tree_store, iter, get_data) -- TODO: __call
+function Tree.new(id, tree_view, tree_store, iter, auto_expand, get_data) -- TODO: __call
   local o = {
     id = id,
     tree_view = tree_view,
     tree_store = tree_store,
     iter = iter,
+    auto_expand = auto_expand,
     get_data = get_data,
     children = {},
     text = nil,
@@ -460,9 +461,6 @@ function Tree.new(id, tree_view, tree_store, iter, get_data) -- TODO: __call
   setmetatable(o, Tree)
   return o
 end
---iter = ui.input_tree_store:get_iter_from_string(0)
---tree = Tree.new('uninit', ui.input_tree_store, nil, input_state_root_get_data)
---tree:refresh('root', nil)
 
 function highlight_change(old, new, child_changed)
   if old == nil then
@@ -478,35 +476,40 @@ end
 
 function Tree:refresh(k, o)
   local old_text = self.text
-  local text, pixbuf, children_o, keys, child_get_data = self:get_data(k, o)
+  local text, pixbuf, children_o, keys = self:get_data(k, o)
   self.text = text
   self.pixbuf = pixbuf
+  local child_keys = {}
+  for _,k in ipairs(keys) do
+    child_keys[k.key] = true
+  end
 
   local had_children = #self.children ~= 0
   local child_changed = false
   for k,v in pairs(self.children) do
-    if children_o[k] == nil then
+    if child_keys[k] == nil then
       self.tree_store:remove(self.children[k].iter)
       self.children[k] = nil
       child_changed = true
     end
   end
   for _,k in ipairs(keys) do
-    local v_o = children_o[k]
-    if self.children[k] == nil then
-      self.children[k] = Tree.new(
-        self.id .. ':' .. k,
+    local v_o = children_o[k.key]
+    if self.children[k.key] == nil then
+      self.children[k.key] = Tree.new(
+        self.id .. ':' .. k.key,
         self.tree_view,
         self.tree_store,
         self.tree_store:append(self.iter, { nil, nil, nil }),
-        child_get_data(k, v_o))
-      if not had_children and self.iter ~= nil then
+        k.auto_expand,
+        k.get_data)
+      if not had_children and self.auto_expand and self.iter ~= nil then
         local path = self.tree_store:get_path(self.iter)
         self.tree_view:expand_row(path, false)
       end
       child_changed = true
     end
-    child_changed = self.children[k]:refresh(k, v_o) or child_changed
+    child_changed = self.children[k.key]:refresh(k.key, v_o) or child_changed
   end
 
   if self.iter ~= nil then
@@ -522,10 +525,11 @@ function input_state_root_get_data(self, k, o)
   for i = 0,size do
     children[i] = i
   end
-  return nil, nil, children, sorted_keys(children), function (_, _) return input_state_get_data end
+  return nil, nil, children, sorted_keys(children, false, input_state_get_data)
 end
 
-function comp_keys(key1, key2)
+function comp_keys(o1, o2)
+  local key1, key2 = o1.key, o2.key
   local type1, type2 = type(key1), type(key2)
   if type1 ~= type2 then
     if type1 == 'number' and type2 == 'string' then
@@ -540,10 +544,10 @@ function comp_keys(key1, key2)
   end
 end
 
-function sorted_keys(t)
+function sorted_keys(t, auto_expand, get_data)
   local keys = {}
   for k,_ in pairs(t) do
-    keys[#keys+1] = k
+    keys[#keys+1] = { key = k, auto_expand = auto_expand, get_data = get_data }
   end
   table.sort(keys, comp_keys)
   return keys
@@ -552,7 +556,7 @@ end
 function input_state_get_data(self, k, o)
   local size = token.inputstacksize()
   if o > size then
-    return 'ERROR: OUT OF SCOPE', nil, {}
+    return 'ERROR: OUT OF SCOPE', nil, nil, {}
   else
     local input_state = token.getinputstack(o)
     local markup
@@ -566,19 +570,19 @@ function input_state_get_data(self, k, o)
         '<tt><span fgcolor="#808080">[%d] %s:%d:</span> %s</tt>',
         o, escape_all(input_state.file), input_state.line_number, escape_all(input_state.line))
     end
-    return markup, nil, input_state, sorted_keys(input_state), function (_, _) return default_get_data end
+    return markup, nil, input_state, sorted_keys(input_state, true, default_get_data)
   end
 end
 
 function default_get_data(self, k, o)
   local function scalar(s)
-    return k .. ' = ' .. type(s) .. ': ' .. escape_markup(tostring(s)), nil, {}, {}, nil
+    return k .. '[' .. type(s) .. ']: ' .. escape_markup(tostring(s)), nil, {}, {}
   end
   local t = type(o)
   if t == 'string' then
     return scalar('"' .. o .. '"')
   elseif t == 'table' then
-    return k, nil, o, sorted_keys(o), function (_, _) return default_get_data end
+    return k, nil, o, sorted_keys(o, true, default_get_data)
   else
     return scalar(o)
   end
@@ -615,6 +619,48 @@ end
 -- mathdir
 -- mathstyle
 
+-- TODO: 'nil' values are appearing as always new
+
+node_types = node.types()
+whatsit_types = node.whatsits()
+function node_get_data(self, k, n)
+  local node_type = node_types[n.id]
+  local subtype = nil
+  if node_type == 'whatsit' then
+    subtype = whatsit_types[n.subtype]
+  elseif node.subtypes(n.id) ~= nil then
+    subtype = node.subtypes(n.id)[n.subtype]
+  end
+  print(prompt.describe(node.fields(node_type, subtype)))
+
+  return
+    string.format(
+      '<tt><span fgcolor="#808080">[%d]</span> %s %s %s</tt>',
+      k, node_type, subtype, escape_markup(tostring(n))),
+    nil, {}, {}
+end
+
+function node_list_get_data(self, k, node)
+  -- node.type(1) == 'vlist'
+  -- node.type(node) = 'vlist'
+  -- node.types() node.whatsits()
+  -- node.fields(1)
+  -- node.values('dir')
+  -- node.subtypes(1)
+  -- get_field_whatsit
+  -- node_data[]
+  -- print(prompt.describe(node.fields('whatsit', 'pdf_literal')))
+  local children = {}
+  local info = {}
+  local iter = node
+  while iter ~= nil do
+    info[#children + 1] = { key = #children + 1, auto_expand = true, get_data = node_get_data }
+    children[#children + 1] = iter
+    iter = iter.next
+  end
+  return tostring(k), nil, children, info
+end
+
 function nest_stack_get_data(self, k, nest_index)
   local nest = tex.getnest(nest_index)
 
@@ -631,6 +677,21 @@ function nest_stack_get_data(self, k, nest_index)
     dirs = nest.dirs, -- node
     mathdir = nest.mathdir, -- boolean
     mathstyle = nest.mathstyle, -- integer
+  }
+
+  local info = {
+    { key = 'mode', auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'delimptr', auto_expand = true, get_data = default_get_data }, -- node
+    { key = 'prevgraf', auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'modeline', auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'prevdepth', auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'spacefactor', auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'noad', auto_expand = true, get_data = default_get_data }, -- node
+    { key = 'dirs', auto_expand = true, get_data = default_get_data }, -- node
+    { key = 'mathdir', auto_expand = true, get_data = default_get_data }, -- boolean
+    { key = 'mathstyle', auto_expand = true, get_data = default_get_data }, -- integer
+    { key = 'head', auto_expand = true, get_data = node_list_get_data }, -- node
+    --{ key = 'tail', auto_expand = true, get_data = default_get_data }, -- node
   }
 
 
@@ -654,9 +715,10 @@ function nest_stack_get_data(self, k, nest_index)
   -- else
   --   error() -- TODO: raise error
   -- end
+  --local info = sorted_keys(children, true, default_get_data)
 
   --local list = nest.head
-  return '#' .. k, nil, nest, sorted_keys(children), function (_, _) return default_get_data end
+  return 'nest[' .. k .. ']', nil, children, info
 end
 
 function next_stack_root_get_data(self, k, o)
@@ -665,13 +727,54 @@ function next_stack_root_get_data(self, k, o)
   for i = 0,size do
     children[i] = i
   end
-  return 'Nest Stack', nil, children, sorted_keys(children), function (_, _) return nest_stack_get_data end
+  return 'Nest Stack', nil, children, sorted_keys(children, true, nest_stack_get_data)
+end
+
+-- TODO: combine children and info
+-- function node_list_root_get_data(self, k, o)
+--   local node_list = tex.getlist(k)
+
+--   return '[' .. k .. ']', nil, children, info
+-- end
+
+-- Special list heads
+
+function special_lists_get_data(self, k, o)
+  local children = {}
+  local info = {}
+  for k,v in pairs({
+    'page_ins_head',
+    'contrib_head',
+    'page_dis',
+    'split_dis',
+    'page_head',
+    'temp_head',
+    'hold_head',
+    'adjust_head',
+    'best_page_brea',
+    'least_page_cos',
+    'best_siz',
+    'pre_adjust_head',
+    'align_head',}) do
+    children[v] = tex.getlist(v)
+    info[#info + 1] = { key = v, auto_expand = true, get_data = node_list_get_data }
+  end
+
+  return 'Special Lists', nil, children, info
 end
 
 -- TODO: sort function instead of list of child orders
-function node_list_root_get_data(self, k, o)
-  local children = { nest_stack = next_stack_root_get_data }
-  return nil, nil, children, { 'nest_stack' }, function (_, v) return v end
+function node_tree_root_get_data(self, k, o)
+  local page_head = tex.getlist('page_head')
+  local children = {
+    nest_stack = true,
+    page_head = page_head,
+  }
+  local info = {
+    { key = 'special_lists', auto_expand = true, get_data = special_lists_get_data },
+    { key = 'nest_stack', auto_expand = true, get_data = next_stack_root_get_data },
+  }
+  return nil, nil, children, info
 end
 
   -- ui.input_tree_store:set(i, {...})
@@ -688,7 +791,7 @@ end
 -- TODO: show "last command"
 -- TODO: disable expand button
 -- TODO: check box for whether to show parameters inline
--- TODO: STEP-Expand* 
+-- TODO: STEP-Expand*
 -- TODO: rename to luatexinspector
 
 print('-------- Input Stack --------')
@@ -827,8 +930,8 @@ function refresh_nest()
 end
 print('-------- Nest Stack --------')
 
-input_tree = Tree.new('input_stack', ui.input_tree_view, ui.input_tree_store, nil, input_state_root_get_data)
-node_tree = Tree.new('node_list', ui.node_tree_view, ui.node_tree_store, nil, node_list_root_get_data)
+input_tree = Tree.new('input_stack', ui.input_tree_view, ui.input_tree_store, nil, true, input_state_root_get_data)
+node_tree = Tree.new('node_tree', ui.node_tree_view, ui.node_tree_store, nil, true, node_tree_root_get_data)
 
 function refresh()
   refresh_nest()
